@@ -156,3 +156,58 @@ test('статический сайт не зависит от внешних JS
   assert.doesNotMatch(html, /<script[^>]*src="https?:\/\//i);
   assert.doesNotMatch(html, /<link[^>]*href="https?:\/\//i);
 });
+
+test('центральное попадание в платформу не даёт вертикальной петли', () => {
+  const {game,CFG}=createEnvironment();
+  game.launch();game.launch();
+  game.ball.x=game.paddle.x;
+  game.ball.y=game.paddle.y-game.ball.r-.5;
+  game.ball.vx=0;game.ball.vy=CFG.initialSpeed;
+  game.moveBall(.004);
+  assert.ok(Math.abs(game.ball.vx)>CFG.initialSpeed*.1);
+  assert.ok(game.ball.vy<0);
+});
+
+test('боковой удар по кирпичу отражает мяч горизонтально', () => {
+  const {game}=createEnvironment();
+  game.launch();game.launch();
+  const brick=game.bricks[0];
+  game.ball.x=brick.x-game.ball.r-1;
+  game.ball.y=brick.y+brick.h/2;
+  game.ball.vx=400;game.ball.vy=0;
+  game.moveBall(.005);
+  assert.ok(game.ball.vx<0);
+  assert.ok(game.ball.x<brick.x);
+});
+
+test('второй палец не перехватывает управление мобильной платформой', () => {
+  const {game,elements,CFG}=createEnvironment();
+  game.launch();
+  const canvas=elements.get('game');
+  const down=canvas.listeners.get('pointerdown');
+  const move=canvas.listeners.get('pointermove');
+  const up=canvas.listeners.get('pointerup');
+  const ev=(pointerId,clientX)=>({pointerType:'touch',pointerId,clientX,cancelable:true,preventDefault(){}});
+  down(ev(11,340));
+  assert.equal(game.activePointerId,11);
+  const first=game.targetX;
+  down(ev(22,60));move(ev(22,60));
+  assert.equal(game.targetX,first);
+  up(ev(22,60));assert.equal(game.activePointerId,11);
+  move(ev(11,300));
+  assert.notEqual(game.targetX,first);
+  up(ev(11,300));assert.equal(game.activePointerId,null);
+  move({pointerType:'mouse',pointerId:33,clientX:400});
+  assert.ok(game.targetX>CFG.width/2);
+});
+
+test('потеря фокуса очищает кнопки и касания, игра уходит на паузу', () => {
+  const {game,handlers}=createEnvironment();
+  game.launch();game.launch();
+  game.keys.ArrowRight=true;
+  game.activePointerId=12;
+  handlers.get('window:blur')();
+  assert.equal(game.state,'paused');
+  assert.equal(game.activePointerId,null);
+  assert.equal(Object.keys(game.keys).length,0);
+});
