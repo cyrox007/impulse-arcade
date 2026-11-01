@@ -6,6 +6,8 @@ on:
   push:
     branches:
       - ops/recover-pages-2026-11-01
+  pull_request:
+    branches: [develop]
 
 permissions:
   contents: read
@@ -14,6 +16,7 @@ permissions:
 
 jobs:
   recover:
+    if: github.event_name != 'pull_request' || github.head_ref == 'ops/recover-pages-2026-11-01'
     runs-on: ubuntu-latest
     steps:
       - name: Inspect and cancel only the stale Pages deployment
