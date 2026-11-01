@@ -5,13 +5,14 @@ HTML/CSS/JS are inlined to avoid file:// or localhost policy restrictions.
 """
 from pathlib import Path
 import shutil
+import re
 from playwright.sync_api import sync_playwright
 
 root = Path(__file__).resolve().parents[1]
 html = (root / 'index.html').read_text(encoding='utf-8')
 css = (root / 'style.css').read_text(encoding='utf-8')
 js = (root / 'game.js').read_text(encoding='utf-8')
-html = html.replace('<link rel="stylesheet" href="style.css">', '')
+html = re.sub(r'<link rel="stylesheet" href="style\\.css(?:\\?[^"]*)?">', '', html)
 html = html.replace('<script src="game.js" defer></script>', '')
 
 with sync_playwright() as pw:
@@ -38,6 +39,8 @@ with sync_playwright() as pw:
         page.add_style_tag(content=css)
         page.add_script_tag(content=js)
         assert page.evaluate('window.__impulseDebug().state') == 'menu'
+        assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'mobile-ui-02-20261101'
+        assert page.locator('.eyebrow').inner_text() == 'АРКАДА • UI 0.2'
         assert page.evaluate('document.documentElement.scrollWidth') <= width
         geometry = page.evaluate('''() => {
             const box = s => document.querySelector(s).getBoundingClientRect();
