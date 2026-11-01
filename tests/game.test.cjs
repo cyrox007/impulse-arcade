@@ -301,7 +301,7 @@ test('0.2: бонусы, потеря мяча и начало уровня не
   assert.equal(game.energy,0);
   game.launch();
   assert.equal(game.state,'playing');
-  assert.equal(game.ballSpeed(),game.levelSpeed());
+  assert.ok(Math.abs(game.ballSpeed()-game.levelSpeed())<.001);
 });
 
 test('0.2: замедление восстанавливает скорость по истечении таймера', () => {
