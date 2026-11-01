@@ -12,7 +12,7 @@ const CFG = Object.freeze({
   brickW: 64, brickH: 25, brickGapX: 7, brickGapY: 9,
   brickStartX: 30, brickStartY: 110,
   pulseDuration: 5.4, wideDuration: 12, slowDuration: 7, comboWindow: 6,
-  storageKey: 'impulse-arcade:best:v1', checkpointKey:'impulse-arcade:checkpoint:v1'
+  storageKey: 'impulse-arcade:best:v1', checkpointKey:'impulse-arcade:checkpoint:v1', settingsKey:'impulse-arcade:settings:v1'
 });
 
 const LEVELS = [
@@ -31,14 +31,20 @@ const ui = {
   charge:document.getElementById('chargeFill'), chargeText:document.getElementById('chargeText'), chargeBar:document.getElementById('chargeBar'),
   hint:document.getElementById('hint'), launch:document.getElementById('launchBtn'),launchLabel:document.getElementById('launchLabel'),
   pulse:document.getElementById('pulseBtn'),pulseLabel:document.getElementById('pulseLabel'),
-  pause:document.getElementById('pauseBtn'),sound:document.getElementById('soundBtn')
+  pause:document.getElementById('pauseBtn'),sound:document.getElementById('soundBtn'),
+  settingsButton:document.getElementById('settingsBtn'),settingsPanel:document.getElementById('settingsPanel'),
+  settingsClose:document.getElementById('settingsClose'),volume:document.getElementById('volumeRange'),
+  volumeText:document.getElementById('volumeValue'),effects:document.getElementById('effectsSelect'),
+  sensitivity:document.getElementById('sensitivityRange'),
+  sensitivityText:document.getElementById('sensitivityValue')
 };
 
 let audioContext = null;
 let soundEnabled = false;
+let masterVolume=.6;
 let lastBeepAt=-Infinity;
 function beep(frequency, duration=.06, volume=.035, type='sine') {
-  if (!soundEnabled) return;
+  if (!soundEnabled||masterVolume<=0) return;
   try {
     if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
     if (audioContext.state === 'suspended') audioContext.resume().catch(()=>{});
@@ -48,7 +54,7 @@ function beep(frequency, duration=.06, volume=.035, type='sine') {
     lastBeepAt=now;
     const osc=audioContext.createOscillator(), gain=audioContext.createGain();
     osc.type=type;osc.frequency.setValueAtTime(frequency,audioContext.currentTime);
-    gain.gain.setValueAtTime(volume,audioContext.currentTime);
+    gain.gain.setValueAtTime(volume*masterVolume,audioContext.currentTime);
     gain.gain.exponentialRampToValueAtTime(.0001,audioContext.currentTime+duration);
     osc.connect(gain);gain.connect(audioContext.destination);
     osc.start();osc.stop(audioContext.currentTime+duration);
@@ -71,6 +77,24 @@ function createLayer(width=CFG.width,height=CFG.height){
 }
 function safeLoadBest(){try{return Math.max(0,Number(localStorage.getItem(CFG.storageKey))||0)}catch(_){return 0}}
 function safeSaveBest(value){try{localStorage.setItem(CFG.storageKey,String(value))}catch(_){/* file:/// or restricted storage */}}
+const SETTINGS_DEFAULTS=Object.freeze({sound:false,volume:60,effects:'auto',sensitivity:100});
+function safeLoadSettings(){
+  try{
+    const raw=localStorage.getItem(CFG.settingsKey);
+    if(!raw||raw.length>1024)return {...SETTINGS_DEFAULTS};
+    const x=JSON.parse(raw);
+    if(!x||x.version!==1||typeof x.sound!=='boolean'||
+       !Number.isInteger(x.volume)||x.volume<0||x.volume>100||
+       !['auto','full','reduced'].includes(x.effects)||
+       !Number.isInteger(x.sensitivity)||x.sensitivity<70||x.sensitivity>130)
+      return {...SETTINGS_DEFAULTS};
+    return {sound:x.sound,volume:x.volume,effects:x.effects,sensitivity:x.sensitivity};
+  }catch(_){return {...SETTINGS_DEFAULTS}}
+}
+function safeSaveSettings(value){
+  try{localStorage.setItem(CFG.settingsKey,JSON.stringify({version:1,...value}));return true}
+  catch(_){return false}
+}
 // Checkpoints are intentionally taken only on cleared sector boundaries.
 // Never persist moving entities, ongoing boss fights or partially destroyed bricks.
 const CHECKPOINT_VERSION=1;
@@ -105,7 +129,12 @@ class Game {
   constructor(){
     this.frame=0;this.state='menu';this.score=0;this.best=safeLoadBest();this.checkpoint=safeLoadCheckpoint();this.lives=3;this.level=0;
     this.energy=0;this.bricks=[];this.drops=[];this.particles=[];this.waves=[];this.enemyShots=[];this.boss=null;this.sectorPhase='bricks';this.keys={};this.activePointerId=null;
-    this.reducedMotion=Boolean(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    this.settings=safeLoadSettings();this.settingsOpen=false;
+    this.reducedMotion=this.settings.effects==='reduced'||
+      (this.settings.effects==='auto'&&Boolean(window.matchMedia&&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches));
+    soundEnabled=this.settings.sound;masterVolume=this.settings.volume/100;
+    this.syncSettingsUI();
     this.paddle={x:CFG.width/2,w:CFG.paddleW,y:CFG.paddleY,h:CFG.paddleH};this.targetX=this.paddle.x;
     this.ball={x:CFG.width/2,y:CFG.paddleY-14,vx:0,vy:0,r:CFG.ballRadius,trail:[]};this.extraBalls=[];
     this.timers={pulse:0,wide:0,slow:0,magnet:0};this.time=0;this.flash=0;this.shieldCharges=0;
@@ -132,6 +161,37 @@ class Game {
     this.draw();this.showOverlay('intro');this.updateUI();
   }
   setState(state){this.state=state;this.updateUI()}
+  syncSettingsUI(){
+    ui.volume.value=String(this.settings.volume);ui.volumeText.textContent=this.settings.volume+'%';
+    ui.effects.value=this.settings.effects;
+    ui.sensitivity.value=String(this.settings.sensitivity);
+    ui.sensitivityText.textContent=this.settings.sensitivity+'%';
+    ui.sound.querySelector('.sound-state').textContent=this.settings.sound?'ВКЛ':'ВЫКЛ';
+    ui.sound.setAttribute('aria-label',this.settings.sound?'Выключить звук':'Включить звук');
+  }
+  setSetting(key,value){
+    if(key==='volume'||key==='sensitivity')value=Number(value);
+    const next={...this.settings,[key]:value};
+    if(typeof next.sound!=='boolean'||!Number.isInteger(next.volume)||
+       next.volume<0||next.volume>100||!['auto','full','reduced'].includes(next.effects)||
+       !Number.isInteger(next.sensitivity)||next.sensitivity<70||next.sensitivity>130)return false;
+    this.settings=next;soundEnabled=next.sound;masterVolume=next.volume/100;
+    this.reducedMotion=next.effects==='reduced'||
+      (next.effects==='auto'&&Boolean(window.matchMedia&&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches));
+    if(this.reducedMotion){this.waves=[];if(this.particles.length>60)this.particles.splice(0,this.particles.length-60)}
+    safeSaveSettings(next);this.syncSettingsUI();return true;
+  }
+  toggleSettings(force){
+    const open=force===undefined?!this.settingsOpen:Boolean(force);
+    if(open===this.settingsOpen)return;
+    this.settingsOpen=open;
+    if(open&&this.state==='playing')this.togglePause();
+    ui.settingsPanel.hidden=!open;
+    ui.settingsButton.setAttribute('aria-expanded',String(open));
+    if(open)ui.settingsClose.focus();
+    else ui.settingsButton.focus();
+  }
   resetCombo(){this.comboHits=0;this.comboUntil=0}
   comboMultiplier(){return Math.min(4,1+Math.floor(Math.max(0,this.comboHits-1)/3))}
   registerHit(){
@@ -243,6 +303,7 @@ class Game {
     this.resetBall();this.setState('ready');this.hideOverlay();this.flash=0;this.updateUI();
   }
   launch(){
+    if(this.settingsOpen)return;
     if(this.state==='menu' || this.state==='lost'){
       if(this.checkpoint&&this.continueGame())return;
       this.startNewGame();return;
@@ -659,7 +720,7 @@ class Game {
     }
     if(this.state!=='ready'&&this.state!=='playing')return;
     const move=(this.keys.ArrowRight||this.keys.KeyD?1:0)-(this.keys.ArrowLeft||this.keys.KeyA?1:0);
-    if(move!==0)this.targetX+=move*CFG.paddleSpeed*dt;
+    if(move!==0)this.targetX+=move*CFG.paddleSpeed*dt*this.settings.sensitivity/100;
     this.targetX=clamp(this.targetX,CFG.left+this.paddle.w/2,CFG.right-this.paddle.w/2);
     this.paddle.x+=(this.targetX-this.paddle.x)*Math.min(1,dt*23);
     if(this.state==='ready'){
@@ -1212,10 +1273,12 @@ const game=new Game();
 const pointerToX=e=>{
   const rect=canvas.getBoundingClientRect();
   if(rect.width===0)return;
-  game.targetX=clamp((e.clientX-rect.left)*(CFG.width/rect.width),CFG.left+game.paddle.w/2,CFG.right-game.paddle.w/2);
+  const desired=(e.clientX-rect.left)*(CFG.width/rect.width);
+  game.targetX=clamp(game.paddle.x+(desired-game.paddle.x)*game.settings.sensitivity/100,
+    CFG.left+game.paddle.w/2,CFG.right-game.paddle.w/2);
 };
 canvas.addEventListener('pointerdown',e=>{
-  if(game.activePointerId!==null)return; // Ignore additional simultaneous fingers.
+  if(game.settingsOpen||game.activePointerId!==null)return; // Ignore extra fingers/settings taps.
   if(e.pointerType==='touch'&&e.cancelable)e.preventDefault();
   game.activePointerId=e.pointerId;
   pointerToX(e);
@@ -1223,7 +1286,7 @@ canvas.addEventListener('pointerdown',e=>{
   if(game.state==='ready'||(game.state==='playing'&&game.activeBalls().some(b=>b.held)))game.launch();
 });
 canvas.addEventListener('pointermove',e=>{
-  if(e.pointerId===game.activePointerId || (e.pointerType==='mouse'&&game.activePointerId===null))pointerToX(e);
+  if(!game.settingsOpen&&(e.pointerId===game.activePointerId || (e.pointerType==='mouse'&&game.activePointerId===null)))pointerToX(e);
 });
 const releasePointer=e=>{if(e.pointerId===game.activePointerId)game.activePointerId=null};
 canvas.addEventListener('pointerup',releasePointer);
@@ -1233,13 +1296,20 @@ ui.launch.addEventListener('click',()=>game.launch());
 ui.pulse.addEventListener('click',()=>game.pulse());
 ui.pause.addEventListener('click',()=>game.togglePause());
 ui.sound.addEventListener('click',()=>{
-  soundEnabled=!soundEnabled;
-  ui.sound.querySelector('.sound-state').textContent=soundEnabled?'ВКЛ':'ВЫКЛ';
-  ui.sound.setAttribute('aria-label',soundEnabled?'Выключить звук':'Включить звук');
+  game.setSetting('sound',!game.settings.sound);
   if(soundEnabled)beep(650,.07);
 });
+ui.settingsButton.addEventListener('click',()=>game.toggleSettings());
+ui.settingsClose.addEventListener('click',()=>game.toggleSettings(false));
+ui.volume.addEventListener('input',()=>game.setSetting('volume',ui.volume.value));
+ui.effects.addEventListener('change',()=>game.setSetting('effects',ui.effects.value));
+ui.sensitivity.addEventListener('input',()=>game.setSetting('sensitivity',ui.sensitivity.value));
 window.addEventListener('keydown',e=>{
   if(['ArrowLeft','ArrowRight','Space','KeyA','KeyD','KeyF','KeyP','Escape','Enter'].includes(e.code))e.preventDefault();
+  if(game.settingsOpen){
+    if(e.code==='Escape'){game.toggleSettings(false);e.preventDefault()}
+    return;
+  }
   game.keys[e.code]=true;
   if(e.repeat)return;
   if(e.code==='Space'||e.code==='Enter')game.launch();
@@ -1280,4 +1350,4 @@ function loop(now){
 }
 requestAnimationFrame(loop);
 // Expose a read-only diagnostic snapshot for automated smoke tests, no gameplay cheats.
-window.__impulseDebug=()=>({state:game.state,score:game.score,level:game.level,lives:game.lives,bricks:game.bricks.length,energy:game.energy,combo:game.comboHits,fps:game.performance.fps,maxFrameMs:game.performance.maxFrameMs,avgUpdateMs:game.performance.avgUpdateMs,avgDrawMs:game.performance.avgDrawMs,spritePaintCount:game.spritePaintCount,shots:game.enemyShots.length,balls:game.activeBalls().length,held:game.activeBalls().filter(b=>b.held).length,moving:game.bricks.filter(b=>b.type==='moving').length,phase:game.sectorPhase,checkpointSector:game.checkpoint?.sector??null,bossHP:game.boss?.hp??0,shield:game.shieldCharges,particles:game.particles.length,waves:game.waves.length,stats:{...game.runStats}});
+window.__impulseDebug=()=>({state:game.state,score:game.score,level:game.level,lives:game.lives,bricks:game.bricks.length,energy:game.energy,combo:game.comboHits,fps:game.performance.fps,maxFrameMs:game.performance.maxFrameMs,avgUpdateMs:game.performance.avgUpdateMs,avgDrawMs:game.performance.avgDrawMs,spritePaintCount:game.spritePaintCount,shots:game.enemyShots.length,balls:game.activeBalls().length,held:game.activeBalls().filter(b=>b.held).length,moving:game.bricks.filter(b=>b.type==='moving').length,phase:game.sectorPhase,checkpointSector:game.checkpoint?.sector??null,settings:{...game.settings},bossHP:game.boss?.hp??0,shield:game.shieldCharges,particles:game.particles.length,waves:game.waves.length,stats:{...game.runStats}});
