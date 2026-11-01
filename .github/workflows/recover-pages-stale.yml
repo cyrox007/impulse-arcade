@@ -1,0 +1,68 @@
+name: One-time recovery of stuck GitHub Pages deployment
+
+# Runs only when this isolated maintenance branch is updated.
+# Never publishes from this branch or modifies the game source.
+on:
+  push:
+    branches:
+      - ops/recover-pages-2026-11-01
+
+permissions:
+  contents: read
+  pages: write
+  issues: write
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect and cancel only the stale Pages deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STALE_PAGES_ID: 13502c7405a01821456e3eb55bbb73654b9b4e160
+        shell: bash
+        run: |
+          set -uo pipefail
+          api="repos/${GITHUB_REPOSITORY}/pages/deployments/${STALE_PAGES_ID}"
+          before_json=$(gh api "$api" 2>&1)
+          lookup_code=$?
+          if [ "$lookup_code" -eq 0 ]; then
+            before=$(jq -r '.status // "unknown"' <<< "$before_json")
+          else
+            before="lookup_failed"
+          fi
+          echo "Deployment status before: $before"
+          action="none"
+          case "$before" in
+            succeed|success|successful|cancelled|canceled|failed|errored)
+              action="skipped; deployment is already terminal"
+              ;;
+            *)
+              if gh api --method POST "$api/cancel" >/dev/null 2>&1; then
+                action="cancel request accepted (HTTP 204)"
+              else
+                action="cancel request failed; verify token permission or deployment ID"
+              fi
+              ;;
+          esac
+          after_json=$(gh api "$api" 2>&1)
+          after_code=$?
+          if [ "$after_code" -eq 0 ]; then
+            after=$(jq -r '.status // "unknown"' <<< "$after_json")
+          else
+            after="lookup_failed"
+          fi
+          echo "Action: $action"
+          echo "Deployment status after: $after"
+          printf -v report '%s\n' \
+            '### Автоматическая попытка разблокировать GitHub Pages' \
+            "- Деплой из ошибки: \`$STALE_PAGES_ID\`." \
+            "- Статус до: \`$before\`." \
+            "- Действие: $action." \
+            "- Статус после: \`$after\`." \
+            '- Запуск выполнялся в изолированной служебной ветке, игровой код и источник публикации не изменялись.' \
+            '- Это не подтверждает успешный деплой свежей версии; проверка необходима отдельно.'
+          gh issue comment 3 --body "$report" || true
+          case "$action" in
+            *failed*) exit 1;;
+          esac
