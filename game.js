@@ -233,7 +233,7 @@ class Game {
   }
   dropBall(){
     this.lives--;this.resetCombo();this.addParticles(this.ball.x,CFG.bottom-20,22,'#f9a4d2');beep(170,.25,.07,'triangle');
-    this.drops=[];this.timers.wide=0;this.timers.magnet=0;this.paddle.w=CFG.paddleW;this.shieldCharges=0;this.extraBalls=[];
+    this.drops=[];this.enemyShots=[];this.timers.wide=0;this.timers.magnet=0;this.paddle.w=CFG.paddleW;this.shieldCharges=0;this.extraBalls=[];
     if(this.lives<=0){this.end('lost');return}
     this.resetBall();this.setState('ready');this.updateUI();
   }
@@ -299,7 +299,7 @@ class Game {
     if((b.x-cx)**2+(b.y-cy)**2>b.r*b.r)return false;
     const node=boss.nodes.find(n=>n.hp>0&&
       (b.x-(boss.x+n.offset))**2+(b.y-(boss.y+boss.h-10))**2<=(b.r+18)**2);
-    if(node&&boss.lock<=0)this.damageReactor(node);
+    if(node&&prevY-b.r>=boss.y+boss.h-2&&b.vy<0&&boss.lock<=0)this.damageReactor(node);
     if(this.state==='playing'&&(!node||this.timers.pulse<=0))
       this.reflectBallFromRect(boss,prevX,prevY,b);
     return true;
@@ -323,24 +323,69 @@ class Game {
     return true;
   }
   updateMovingBricks(dt){
-    // Long unobstructed patrol lanes: the brick moves hundreds of pixels,
-    // not a jittering +/-4px. Reflection preserves the overshoot for smoothness.
-    for(const brick of this.bricks){
-      if(brick.type!=='moving')continue;
-      if(brick.path==='vertical'){
-        brick.y+=brick.vy*dt;
-        if(brick.y>brick.maxY){brick.y=brick.maxY-(brick.y-brick.maxY);brick.vy=-Math.abs(brick.vy)}
-        else if(brick.y<brick.minY){brick.y=brick.minY+(brick.minY-brick.y);brick.vy=Math.abs(brick.vy)}
-      }else{
-        brick.x+=brick.vx*dt;
-        if(brick.x>brick.maxX){brick.x=brick.maxX-(brick.x-brick.maxX);brick.vx=-Math.abs(brick.vx)}
-        else if(brick.x<brick.minX){brick.x=brick.minX+(brick.minX-brick.x);brick.vx=Math.abs(brick.vx)}
-        if(brick.path==='sine'){
-          const progress=(brick.x-brick.minX)/(brick.maxX-brick.minX);
-          brick.y=brick.anchorY+10*Math.sin(progress*Math.PI*2);
-        }
+    // Free-roaming targets share the same obstacle field; no rails or corridors.
+    // Try each axis independently and bounce off any remaining brick or wall.
+    const movers=this.bricks.filter(b=>b.type==='moving');
+    const occupied=(brick,x,y)=>this.bricks.some(other=>
+      other!==brick&&x<other.x+other.w+1&&x+brick.w+1>other.x&&
+      y<other.y+other.h+1&&y+brick.h+1>other.y);
+    for(const brick of movers){
+      brick.directionClock-=dt;
+      if(brick.directionClock<=0){
+        const angle=Math.random()*Math.PI*2,speed=100;
+        brick.vx=Math.cos(angle)*speed;brick.vy=Math.sin(angle)*speed;
+        brick.directionClock=1.4+Math.random()*1.3;
+      }
+      const x=brick.x+brick.vx*dt;
+      if(x<CFG.left+4||x+brick.w>CFG.right-4||occupied(brick,x,brick.y)){
+        brick.vx=-brick.vx;
+      }else brick.x=x;
+      const y=brick.y+brick.vy*dt;
+      if(y<CFG.brickStartY-3||y+brick.h>this.paddle.y-108||occupied(brick,brick.x,y)){
+        brick.vy=-brick.vy;
+      }else brick.y=y;
+    }
+  }
+  shootBoss(boss){
+    if(this.enemyShots.length>=4||this.state!=='playing')return;
+    const x=boss.x+boss.w/2,y=boss.y+boss.h+8;
+    const dx=clamp(this.paddle.x-x,-175,175);
+    const speed=boss.kind==='reactor'?205:177;
+    this.enemyShots.push({x,y,vx:dx*.36,vy:speed,r:8});
+    this.addWave(x,y,boss.kind==='reactor'?'#ffb76c':'#ef94ff',24,.19,2);
+    beep(240,.07,.03,'sawtooth');
+  }
+  updateEnemyShots(dt){
+    for(let i=this.enemyShots.length-1;i>=0;i--){
+      const shot=this.enemyShots[i],oldY=shot.y;
+      shot.x+=shot.vx*dt;shot.y+=shot.vy*dt;
+      if(shot.y-shot.r>CFG.bottom||shot.x<CFG.left-20||shot.x>CFG.right+20){
+        this.enemyShots.splice(i,1);continue;
+      }
+      if(shot.vy>0&&oldY+shot.r<=this.paddle.y+5&&shot.y+shot.r>=this.paddle.y &&
+        Math.abs(shot.x-this.paddle.x)<=this.paddle.w/2+shot.r){
+        this.enemyShots.splice(i,1);
+        this.addParticles(shot.x,this.paddle.y,14,'#ffae78');
+        this.addWave(shot.x,this.paddle.y,'#ffc68a',30,.24,2);
+        if(this.shieldCharges>0){this.shieldCharges=0;this.runStats.barriers++;this.updateUI()}
+        else this.dropBall();
+        break;
       }
     }
+  }
+  collisionSide(rect,prevX,prevY,ball){
+    // Use previous circle edges, so glancing impacts do not switch vulnerable sides.
+    if(prevY+ball.r<=rect.y+1)return 'U';
+    if(prevY-ball.r>=rect.y+rect.h-1)return 'D';
+    if(prevX+ball.r<=rect.x+1)return 'L';
+    if(prevX-ball.r>=rect.x+rect.w-1)return 'R';
+    const distances=[
+      ['U',Math.abs(ball.y+ball.r-rect.y)],
+      ['D',Math.abs(rect.y+rect.h-(ball.y-ball.r))],
+      ['L',Math.abs(ball.x+ball.r-rect.x)],
+      ['R',Math.abs(rect.x+rect.w-(ball.x-ball.r))]
+    ];
+    distances.sort((a,b)=>a[1]-b[1]);return distances[0][0];
   }
   completeLevel(){
     this.lastSectorBestCombo=this.bestComboInSector;
@@ -382,7 +427,7 @@ class Game {
       if(Math.abs(target.row-source.row)+Math.abs(target.col-source.col)!==1)continue;
       const index=this.bricks.indexOf(target);
       if(index<0)continue;
-      if(target.type==='moving')continue;
+      if(target.type==='moving'||target.type==='directional')continue;
       target.hp=Math.max(0,target.hp-1);
       target.lock=0;this.bricksDirty=true;
       this.blockEffect(target,target.hp===0,true);
@@ -423,7 +468,8 @@ class Game {
       prism:['#ae9aff','#eadfff'],
       armor:['#f0ba6c','#fff0b7'],
       core:['#ef83fc','#ffd5ff'],
-      blast:['#ff8d50','#ffe2a1']
+      blast:['#ff8d50','#ffe2a1'],
+      directional:['#8cffd1','#dbfff1']
     };
     const [color,highlight]=colors[brick.type]||colors.normal;
     const amount=destroyed?(brick.type==='blast'?14:brick.type==='armor'?11:9):brick.type==='armor'?5:3;
@@ -432,7 +478,7 @@ class Game {
       if(brick.type==='armor')this.addWave(x,y,highlight,18,.14,1.6);
       return;
     }
-    if(brick.type==='normal'||brick.type==='moving'||brick.type==='charge'||brick.type==='prism'){
+    if(brick.type==='normal'||brick.type==='moving'||brick.type==='charge'||brick.type==='prism'||brick.type==='directional'){
       // Glass-like fragments and a small cyan pulse.
       this.addWave(x,y,highlight,33,.20,1.5);
     }else if(brick.type==='armor'){
@@ -502,8 +548,17 @@ class Game {
         boss.x+=boss.vx*dt;
         if(boss.x>boss.maxX){boss.x=boss.maxX-(boss.x-boss.maxX);boss.vx=-Math.abs(boss.vx)}
         else if(boss.x<boss.minX){boss.x=boss.minX+(boss.minX-boss.x);boss.vx=Math.abs(boss.vx)}
-        boss.y=139+(this.reducedMotion?0:3*Math.sin(boss.phaseTime*2));
-      }else boss.y=138+(this.reducedMotion?0:4*Math.sin(boss.phaseTime*2.3));
+        boss.y=145+(this.reducedMotion?0:18*Math.sin(boss.phaseTime*.95));
+      }else{
+        boss.x+=boss.vx*dt;
+        if(boss.x>boss.maxX){boss.x=boss.maxX-(boss.x-boss.maxX);boss.vx=-Math.abs(boss.vx)}
+        else if(boss.x<boss.minX){boss.x=boss.minX+(boss.minX-boss.x);boss.vx=Math.abs(boss.vx)}
+        boss.y=153+(this.reducedMotion?0:14*Math.sin(boss.phaseTime*1.25));
+      }
+      boss.shotClock+=dt;
+      const interval=boss.kind==='reactor'?2.9:3.5;
+      if(boss.shotClock>=interval){boss.shotClock-=interval;this.shootBoss(boss)}
+    }
     }
     if(this.state!=='ready'&&this.state!=='playing')return;
     const move=(this.keys.ArrowRight||this.keys.KeyD?1:0)-(this.keys.ArrowLeft||this.keys.KeyA?1:0);
@@ -531,6 +586,7 @@ class Game {
       }
     }
     this.updateDrops(dt);
+    if(this.state==='playing')this.updateEnemyShots(dt);
     if(this.activeBalls().some(b=>b.held&&(b.holdTime<=0||this.timers.magnet<=0)))
       this.releaseHeldBalls();
     const steps=Math.max(1,Math.ceil(dt/.006));
@@ -596,9 +652,17 @@ class Game {
       const brick=this.bricks[i];if(brick.lock>0)continue;
       const closeX=clamp(b.x,brick.x,brick.x+brick.w),closeY=clamp(b.y,brick.y,brick.y+brick.h);
       if((b.x-closeX)**2+(b.y-closeY)**2>b.r**2)continue;
+      const sided=brick.type==='directional';
+      const permitted=!sided||this.collisionSide(brick,prevX,prevY,b)===brick.face;
       const pierced=this.timers.pulse>0;
-      if(this.hitBrick(brick,i)&&!pierced){
+      if(permitted){
+        if(this.hitBrick(brick,i)&&!pierced){
+          this.reflectBallFromRect(brick,prevX,prevY,b);
+          break;
+        }
+      }else{
         this.reflectBallFromRect(brick,prevX,prevY,b);
+        if(!this.reducedMotion)this.addWave(b.x,b.y,'#9effdd',15,.12,1.3);
         break;
       }
       if(this.state!=='playing')break;
@@ -611,7 +675,7 @@ class Game {
       const closeY=clamp(b.y,guardian.y,guardian.y+guardian.h);
       if((b.x-closeX)**2+(b.y-closeY)**2<=b.r*b.r){
         const vulnerable=this.guardianVulnerable();
-        if(guardian.lock<=0&&vulnerable)this.damageGuardian();
+        if(guardian.lock<=0&&vulnerable&&prevY-b.r>=guardian.y+guardian.h-2&&b.vy<0)this.damageGuardian();
         // A shielded guardian always reflects. Pulse pierces only when exposed.
         if(this.state==='playing'&&(!vulnerable||this.timers.pulse<=0))
           this.reflectBallFromRect(guardian,prevX,prevY,b);
@@ -693,7 +757,7 @@ class Game {
       this.drawBricks(ctx);
       this.bricksDirty=false;
     }
-    this.drawMovingBricks();this.drawGuardian();this.drawDrops();this.drawParticles();this.drawWaves();this.drawShield();this.drawPaddle();this.drawBall();this.drawGameplayStatus();
+    this.drawMovingBricks();this.drawGuardian();this.drawEnemyShots();this.drawDrops();this.drawParticles();this.drawWaves();this.drawShield();this.drawPaddle();this.drawBall();this.drawGameplayStatus();
     if(this.flash>0){ctx.fillStyle=`rgba(252,114,201,${Math.min(.2,this.flash*.4)})`;ctx.fillRect(0,0,w,h)}
     // Opt-in on-device FPS overlay: ?fps=1 (no clutter during normal play).
     if(this.profileEnabled){
