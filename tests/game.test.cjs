@@ -445,3 +445,125 @@ test('perf: FPS-профайлер по умолчанию неактивен и
   diagnostic.tick(91*1000/60);
   assert.equal(diagnostic.game.time,lastTime);
 });
+
+test('0.3: серии попаданий дают ограниченный множитель, не меняя энергию', () => {
+  const {game,CFG}=createEnvironment();
+  game.launch();game.launch();
+  assert.equal(CFG.maxComboMultiplier,4);
+  for(let i=0;i<4;i++){
+    const block=game.bricks[0];
+    block.lock=0;game.hitBrick(block,0);
+  }
+  // ×1 for first three contacts, ×2 starting at fourth.
+  assert.equal(game.score,500);
+  assert.equal(game.comboHits,4);
+  assert.equal(game.stats.bestCombo,4);
+  assert.equal(game.stats.hits,4);
+  assert.equal(game.stats.bricks,4);
+  assert.equal(game.energy,48);
+  const prev=game.score;
+  for(let i=0;i<10;i++){
+    const block=game.bricks[0];
+    block.lock=0;game.hitBrick(block,0);
+  }
+  assert.equal(game.comboHits,14);
+  assert.equal(game.stats.bestCombo,14);
+  assert.equal(game.score-prev,3500);
+  assert.ok(game.score>0);
+});
+
+test('0.3: серия истекает по игровому времени и сбрасывается после отскока от платформы', () => {
+  const {game,CFG}=createEnvironment();
+  game.launch();game.launch();
+  game.hitBrick(game.bricks[0],0);
+  game.hitBrick(game.bricks[0],0);
+  assert.equal(game.comboHits,2);
+  game.update(CFG.comboWindow+.01);
+  assert.equal(game.comboHits,0);
+  game.hitBrick(game.bricks[0],0);
+  assert.equal(game.comboHits,1);
+  game.ball.x=game.paddle.x;
+  game.ball.y=game.paddle.y-game.ball.r-.5;
+  game.ball.vx=0;game.ball.vy=CFG.initialSpeed;
+  game.moveBall(.004);
+  assert.equal(game.comboHits,0);
+  game.hitBrick(game.bricks[0],0);
+  assert.equal(game.comboHits,1);
+  game.dropBall();
+  assert.equal(game.comboHits,0);
+});
+
+test('0.3: пауза не продвигает время серии или статистику, а новый забег сбрасывает их', () => {
+  const {game,CFG}=createEnvironment();
+  game.launch();game.launch();
+  game.update(.25);
+  game.hitBrick(game.bricks[0],0);
+  const active=game.stats.activeSeconds,time=game.time;
+  game.togglePause();
+  for(let i=0;i<100;i++)game.update(.05);
+  assert.equal(game.stats.activeSeconds,active);
+  assert.equal(game.time,time);
+  assert.equal(game.comboHits,1);
+  game.resume();
+  game.update(.2);
+  assert.ok(game.stats.activeSeconds>active);
+  assert.equal(game.comboHits,1);
+  game.end('lost');
+  assert.equal(game.state,'lost');
+  game.launch();
+  assert.equal(game.stats.activeSeconds,0);
+  assert.equal(game.stats.hits,0);
+  assert.equal(game.stats.bestCombo,0);
+  assert.equal(game.stats.bricks,0);
+  assert.equal(game.comboHits,0);
+  assert.equal(game.level,0);
+  assert.equal(game.lives,3);
+  assert.ok(CFG.comboWindow>0);
+});
+
+test('0.3: импульсы и попадания считаются один раз, итоговые карточки выводятся при победе/поражении', () => {
+  const {game,elements}=createEnvironment();
+  game.launch();game.launch();
+  game.hitBrick(game.bricks[0],0);
+  game.energy=100;
+  game.pulse();
+  game.pulse();
+  assert.equal(game.stats.pulses,1);
+  game.update(1.25);
+  game.end('lost');
+  let html=elements.get('overlay').innerHTML;
+  assert.ok(html.includes('class="run-stats"'));
+  assert.ok(html.includes('ВРЕМЯ'));
+  assert.ok(html.includes('БЛОКОВ'));
+  assert.ok(html.includes('СЕРИЯ'));
+  assert.ok(html.includes('УДАРЫ: 1 · ИМПУЛЬСЫ: 1'));
+  assert.equal(game.elapsedLabel(),'0:01');
+  game.stats.activeSeconds=65.5;
+  assert.equal(game.elapsedLabel(),'1:05');
+  game.end('won');
+  html=elements.get('overlay').innerHTML;
+  assert.ok(html.includes('1:05'));
+  assert.ok(html.includes('ТРИ СЕКТОРА ПРОЙДЕНЫ'));
+});
+
+test('0.3: прогресс сектора обновляется после разрушения и сбрасывается на переходе', () => {
+  const {game,LEVELS,elements}=createEnvironment();
+  game.launch();game.launch();
+  const original=game.bricks.length;
+  assert.equal(game.levelBricksTotal,original);
+  assert.ok(elements.get('stageLabel').textContent.includes(original+' БЛОКОВ'));
+  game.hitBrick(game.bricks[0],0);
+  assert.ok(elements.get('stageLabel').textContent.includes((original-1)+' БЛОКОВ'));
+  for(let i=game.bricks.length-1;i>=0;i--){
+    const b=game.bricks[i];
+    while(b.hp>0){b.lock=0;game.hitBrick(b,i);}
+  }
+  assert.equal(game.state,'between');
+  assert.equal(game.bricks.length,0);
+  assert.equal(game.stats.bricks,original);
+  game.launch();
+  assert.equal(game.level,1);
+  assert.equal(game.comboHits,0);
+  assert.equal(game.levelBricksTotal,LEVELS[1].rows.join('').replaceAll('.','').length);
+  assert.ok(elements.get('stageLabel').textContent.includes(game.levelBricksTotal+' БЛОКОВ'));
+});
