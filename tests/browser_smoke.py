@@ -125,6 +125,27 @@ with sync_playwright() as pw:
         assert sprite_stats['ball'] and sprite_stats['paddle'], sprite_stats
         assert isinstance(sprite_stats['visibleStats'], (int, float)), sprite_stats
         print(f"{label}: sector3 90 paints in {paint_stats['ms']:.1f}ms (desktop/mobile emulation)")
+        # 0.3: verify real scoring and end-of-run UI on desktop/touch screens.
+        run_stats = page.evaluate("""() => {
+            game.startNewGame(); game.launch();
+            for(let i=0;i<4;i++)game.hitBrick(game.bricks[0],0);
+            const combo = window.__impulseDebug();
+            const stage = document.querySelector('#stageLabel').textContent;
+            game.end('lost');
+            const box = s => document.querySelector(s).getBoundingClientRect();
+            return {combo: combo.combo, score:combo.score, bricks:combo.stats.bricks,
+                stage, remaining:game.bricks.length,
+                statsText:document.querySelector('.run-stats').textContent,
+                actionBottom:box('#overlayAction').bottom,
+                stageBottom:box('.game-stage').bottom,
+                statsTop:box('.run-stats').top,
+                stageTop:box('.game-stage').top};
+        }""")
+        assert run_stats['combo'] == 4 and run_stats['score'] == 500, run_stats
+        assert run_stats['bricks'] == 4 and 'БЛОКОВ' in run_stats['stage'], run_stats
+        assert 'ВРЕМЯ' in run_stats['statsText'] and 'СЕРИЯ' in run_stats['statsText'], run_stats
+        assert run_stats['actionBottom'] <= run_stats['stageBottom'] + 1, run_stats
+        assert run_stats['statsTop'] >= run_stats['stageTop'] - 1, run_stats
         assert not errors, errors
         print(f'{label}: responsive, controls, pause, blur OK; JS errors: 0')
         context.close()
