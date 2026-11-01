@@ -1,8 +1,8 @@
 name: Публикация Импульса (GitHub Pages)
 
 on:
-  push:
-    branches: [main]
+  # Alternative for a future switch to Pages → Source: GitHub Actions.
+  # Current site uses deploy-from-branch (develop), so do not auto-deploy main.
   workflow_dispatch:
 
 permissions:
