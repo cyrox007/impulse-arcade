@@ -37,6 +37,7 @@ function createEnvironment() {
   const document = {
     hidden:false,
     getElementById(id) {if (!records.has(id)) records.set(id, makeElement(id));return records.get(id);},
+    createElement(tag) {if(tag!=='canvas')throw Error('Unexpected element '+tag);return {width:0,height:0,getContext(){return canvasContext;}};},
     addEventListener(type, handler) { handlers.set('document:'+type, handler); }
   };
   const window = {addEventListener(type, handler) {handlers.set('window:'+type, handler);}};
@@ -349,4 +350,53 @@ test('0.2: симуляция FPS 30/60/120 не создаёт нечислов
       if(game.state==='lost')break;
     }
   }
+});
+
+test('perf: фон создаётся один раз, слой кирпичей не рисуется каждый кадр', () => {
+  const {game}=createEnvironment();
+  assert.ok(game.backdropLayer && game.brickLayer);
+  game.launch();game.launch();
+  game.draw();
+  const first=game.brickPaintCount;
+  for(let i=0;i<120;i++)game.draw();
+  assert.equal(game.brickPaintCount,first,'same bricks should reuse cached image');
+  assert.equal(game.bricksDirty,false);
+  assert.equal(game.brickLayer.canvas.width,480);
+  assert.equal(game.brickLayer.canvas.height,720);
+});
+
+test('perf: урон, разрушение и следующий сектор инвалидируют кэш кирпичей', () => {
+  const {game}=createEnvironment();
+  game.launch();game.launch();game.draw();
+  const before=game.brickPaintCount;
+  const first=game.bricks[0];
+  first.lock=0;
+  game.hitBrick(first,0);
+  assert.equal(game.bricksDirty,true);
+  game.draw();
+  assert.equal(game.brickPaintCount,before+1);
+  for(let i=0;i<30;i++)game.draw();
+  assert.equal(game.brickPaintCount,before+1);
+  for(let i=game.bricks.length-1;i>=0;i--){
+    const b=game.bricks[i];
+    while(b.hp>0){b.lock=0;game.hitBrick(b,i);}
+  }
+  assert.equal(game.state,'between');
+  game.launch();
+  assert.equal(game.state,'ready');
+  assert.equal(game.level,1);
+  assert.equal(game.bricksDirty,true);
+  game.draw();
+  assert.equal(game.bricksDirty,false);
+  assert.equal(game.brickPaintCount,before+2);
+});
+
+test('perf: частицы ограничены и диагностические счётчики доступны', () => {
+  const {game}=createEnvironment();
+  game.addParticles(100,100,250,'#fff');
+  assert.equal(game.particles.length,180);
+  game.addParticles(100,100,90,'#fff');
+  assert.equal(game.particles.length,180);
+  assert.equal(typeof game.performance.fps,'number');
+  assert.equal(typeof game.performance.maxFrameMs,'number');
 });
