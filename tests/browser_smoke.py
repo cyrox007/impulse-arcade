@@ -13,7 +13,7 @@ html = (root / 'index.html').read_text(encoding='utf-8')
 css = (root / 'style.css').read_text(encoding='utf-8')
 js = (root / 'game.js').read_text(encoding='utf-8')
 html = re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]*)?">', '', html)
-html = re.sub(r'<script src="game\\.js(?:\\?[^"]*)?" defer></script>', '', html)
+html = re.sub(r'<script src="game\.js(?:\?[^"]*)?" defer></script>', '', html)
 
 with sync_playwright() as pw:
     binary = shutil.which('chromium') or shutil.which('google-chrome')
