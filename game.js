@@ -338,16 +338,20 @@ const pointerToX=e=>{
   game.targetX=clamp((e.clientX-rect.left)*(CFG.width/rect.width),CFG.left+game.paddle.w/2,CFG.right-game.paddle.w/2);
 };
 canvas.addEventListener('pointerdown',e=>{
+  if(game.activePointerId!==null)return; // Ignore additional simultaneous fingers.
   if(e.pointerType==='touch'&&e.cancelable)e.preventDefault();
-  pointerToX(e);game.pointerActive=true;
+  game.activePointerId=e.pointerId;
+  pointerToX(e);
   try{canvas.setPointerCapture(e.pointerId)}catch(_){}
   if(game.state==='ready')game.launch();
 });
 canvas.addEventListener('pointermove',e=>{
-  if(e.pointerType==='mouse'||game.pointerActive)pointerToX(e);
+  if(e.pointerId===game.activePointerId || (e.pointerType==='mouse'&&game.activePointerId===null))pointerToX(e);
 });
-const releasePointer=()=>{game.pointerActive=false};
-canvas.addEventListener('pointerup',releasePointer);canvas.addEventListener('pointercancel',releasePointer);
+const releasePointer=e=>{if(e.pointerId===game.activePointerId)game.activePointerId=null};
+canvas.addEventListener('pointerup',releasePointer);
+canvas.addEventListener('pointercancel',releasePointer);
+canvas.addEventListener('lostpointercapture',releasePointer);
 ui.launch.addEventListener('click',()=>game.launch());
 ui.pulse.addEventListener('click',()=>game.pulse());
 ui.pause.addEventListener('click',()=>game.togglePause());
