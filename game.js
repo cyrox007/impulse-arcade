@@ -208,9 +208,9 @@ class Game {
     for(const b of this.activeBalls()){
       if(!b.held)continue;
       b.held=false;b.holdTime=0;
-      const speed=this.levelSpeed()*(this.timers.slow>0?.75:1);
+      const speed=this.levelSpeed()*(this.timers.slow>0 ? .75 : 1);
       const angle=clamp((b.holdOffset||0)/(this.paddle.w/2)*.75,-.85,.85);
-      b.vx=speed*Math.sin(Math.abs(angle)<.12?.16:angle);
+      b.vx=speed*Math.sin(Math.abs(angle)<.12 ? .16 : angle);
       b.vy=-Math.sqrt(speed*speed-b.vx*b.vx);count++;
     }
     if(count)this.updateUI();
@@ -583,7 +583,8 @@ class Game {
   statsSummary(){
     return 'Время: '+Math.floor(this.runStats.seconds)+' с · Попадания: '+this.runStats.hits+
       ' · Разрушено: '+this.runStats.broken+' · Импульсы: '+this.runStats.pulses+
-      ' · Лучшая серия: '+this.runStats.maxCombo+' · Спасения: '+this.runStats.barriers;
+      ' · Лучшая серия: '+this.runStats.maxCombo+' · Спасения: '+this.runStats.barriers+
+      ' · Разделений: '+this.runStats.splits;
   }
   overlayContent(kind){
     const common={
@@ -852,6 +853,14 @@ class Game {
     }else{
       // Safe fallback for environments without an offscreen canvas.
       this.paintPaddle(ctx,p.w,wide,p.x-p.w/2,p.y);
+    }
+    if(this.timers.magnet>0){
+      // Thin static-color field; keep the cached paddle sprite intact.
+      ctx.strokeStyle='#ffc57e';ctx.lineWidth=2;ctx.globalAlpha=.85;
+      ctx.beginPath();ctx.moveTo(p.x-p.w/2+9,p.y-6);
+      ctx.lineTo(p.x-p.w/2+9,p.y-10);ctx.lineTo(p.x+p.w/2-9,p.y-10);
+      ctx.lineTo(p.x+p.w/2-9,p.y-6);ctx.stroke();
+      ctx.globalAlpha=1;ctx.lineWidth=1;
     }
   }
   paintBall(target,pulse,x,y,r){
