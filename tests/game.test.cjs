@@ -8,7 +8,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const source = readFileSync(path.join(root, 'game.js'), 'utf8');
 
-function createEnvironment({fpsDebug=false}={}) {
+function createEnvironment({fpsDebug=false,reducedMotion=false}={}) {
   const handlers = new Map();
   const gradientCalls={linear:0,radial:0};
   let animationFrame=null, clock=0;
@@ -44,6 +44,7 @@ function createEnvironment({fpsDebug=false}={}) {
     addEventListener(type, handler) { handlers.set('document:'+type, handler); }
   };
   const window = {location:{search:fpsDebug?'?fps=1':''},
+    matchMedia:()=>({matches:reducedMotion}),
     addEventListener(type, handler) {handlers.set('window:'+type, handler);}};
   const sandbox = {
     window, document,
@@ -159,8 +160,8 @@ test('ограничение положения платформы и захва
 test('статический сайт не зависит от внешних JS/CSS и имеет мета-описание', () => {
   const html = readFileSync(path.join(root,'index.html'),'utf8');
   assert.match(html, /name="description"/);
-  assert.match(html, /src="game\.js\?v=gameplay-04-20261101"/);
-  assert.match(html, /href="style\.css\?v=gameplay-04-20261101"/);
+  assert.match(html, /src="game\.js\?v=gameplay-04-fx-20261101"/);
+  assert.match(html, /href="style\.css\?v=gameplay-04-fx-20261101"/);
   assert.doesNotMatch(html, /<script[^>]*src="https?:\/\//i);
   assert.doesNotMatch(html, /<link[^>]*href="https?:\/\//i);
 });
@@ -660,4 +661,88 @@ test('0.4: статистика забега учитывает игровое �
   assert.equal(game.runStats.hits,0);
   assert.equal(game.runStats.seconds,0);
   assert.equal(game.runStats.pulses,0);
+});
+
+test('0.4.1: каждый тип кирпича даёт собственный визуальный отклик',()=>{
+  const {game}=createEnvironment();
+  game.launch();game.launch();
+  const normal=game.bricks.find(b=>b.type==='normal');
+  game.hitBrick(normal,game.bricks.indexOf(normal));
+  assert.ok(game.waves.some(w=>w.radius===33));
+  assert.ok(game.particles.some(p=>p.shard&&p.color==='#6bcdff'));
+
+  game.level=1;game.startLevel();game.launch();
+  const armor=game.bricks.find(b=>b.type==='armor');
+  game.hitBrick(armor,game.bricks.indexOf(armor));
+  assert.ok(game.waves.some(w=>w.radius===18),'armored impact chips');
+  armor.lock=0;game.hitBrick(armor,game.bricks.indexOf(armor));
+  assert.ok(game.waves.some(w=>w.radius===41),'armored destruction');
+  const core=game.bricks.find(b=>b.type==='core');
+  game.hitBrick(core,game.bricks.indexOf(core));
+  assert.ok(game.waves.some(w=>w.radius===49));
+  assert.ok(game.waves.some(w=>w.radius===28));
+  const blast=game.bricks.find(b=>b.type==='blast');
+  game.hitBrick(blast,game.bricks.indexOf(blast));
+  assert.ok(game.waves.some(w=>w.kind==='burst'&&w.radius===64));
+  assert.ok(game.waves.some(w=>w.radius===95));
+  assert.doesNotThrow(()=>game.drawWaves());
+  assert.doesNotThrow(()=>game.drawParticles());
+});
+
+test('0.4.1: каскадные повреждения создают FX, но не рекурсивные взрывы',()=>{
+  const {game}=createEnvironment();
+  game.launch();game.level=2;game.startLevel();game.launch();
+  const blast=game.bricks.find(b=>b.type==='blast');
+  const neighbors=game.bricks.filter(b=>Math.abs(b.row-blast.row)+Math.abs(b.col-blast.col)===1);
+  assert.ok(neighbors.length>=2);
+  const before=game.runStats.hits;
+  game.hitBrick(blast,game.bricks.indexOf(blast));
+  assert.equal(game.runStats.hits,before+1);
+  assert.equal(game.comboHits,1);
+  assert.ok(game.waves.length>=2);
+  assert.ok(game.particles.length>0);
+  assert.ok(game.waves.length<=24);
+  assert.ok(game.particles.length<=180);
+});
+
+test('0.4.1: затухание, пауза и очистка эффекта не влияют на физику',()=>{
+  const {game}=createEnvironment();
+  game.launch();game.launch();
+  const brick=game.bricks[0];
+  game.hitBrick(brick,0);
+  assert.ok(game.waves.length>0);
+  const life=game.waves[0].life;
+  const ball=[game.ball.x,game.ball.y];
+  game.togglePause();game.update(.15);game.draw();
+  assert.equal(game.waves[0].life,life);
+  assert.deepEqual([game.ball.x,game.ball.y],ball);
+  game.launch();game.update(.5);
+  assert.equal(game.waves.length,0);
+  game.startNewGame();
+  assert.equal(game.waves.length,0);
+  assert.equal(game.particles.length,0);
+});
+
+test('0.4.1: лимиты эффектов и кэш кирпичей соблюдаются при залпах',()=>{
+  const {game}=createEnvironment();
+  game.launch();game.launch();
+  game.draw();
+  const oldPaint=game.brickPaintCount;
+  for(let i=0;i<80;i++){
+    game.addWave(240,200,'#fff',45,.25);
+    game.addParticles(240,200,15,'#fff',{shard:true});
+  }
+  assert.equal(game.waves.length,24);
+  assert.equal(game.particles.length,180);
+  for(let i=0;i<120;i++)game.draw();
+  assert.equal(game.brickPaintCount,oldPaint);
+});
+
+test('0.4.1: режим уменьшения анимации не создаёт ударных волн',()=>{
+  const {game}=createEnvironment({reducedMotion:true});
+  game.launch();game.launch();
+  const brick=game.bricks[0];
+  game.hitBrick(brick,0);
+  assert.equal(game.waves.length,0);
+  assert.ok(game.particles.length>0&&game.particles.length<=3);
 });
