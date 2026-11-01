@@ -1821,3 +1821,45 @@ test('1.0 RC: настройки и checkpoint сосуществуют при �
   next.game.launch();
   assert.equal(next.game.level,1);
 });
+
+test('1.0 RC: взрыв во время пробивного импульса не обращается к удалённым кирпичам',()=>{
+  const {game}=createEnvironment();
+  game.launch();game.level=1;game.startLevel();game.launch();
+  const blast=game.bricks.find(b=>b.type==='blast');
+  const left=game.bricks.find(b=>b.row===blast.row&&b.col===blast.col-1);
+  const right=game.bricks.find(b=>b.row===blast.row&&b.col===blast.col+1);
+  const remote=game.bricks.find(b=>b.row===0&&b.col===0);
+  assert.ok(blast&&left&&right&&remote);
+  // Deliberately arrange indexes so that three bricks disappear at once.
+  game.bricks=[remote,left,right,blast];
+  game.energy=100;game.pulse();
+  const ball=game.ball;
+  ball.x=blast.x+blast.w/2;ball.y=blast.y+blast.h+ball.r+.3;
+  ball.vx=0;ball.vy=-game.levelSpeed();
+  assert.doesNotThrow(()=>game.moveBall(.004),'a deleted neighbour must be skipped');
+  // The right neighbour is armored and keeps one HP; the left is destroyed.
+  assert.equal(game.bricks.length,2);
+  assert.ok(game.bricks.includes(remote));
+  assert.ok(game.bricks.includes(right));
+  assert.equal(right.hp,1);
+  assert.equal(game.state,'playing');
+  assert.ok(Number.isFinite(ball.x)&&Number.isFinite(ball.y));
+});
+
+test('1.0 RC: мультишар переживает многократные взрывы и сохраняет лимиты',()=>{
+  const {game}=createEnvironment();game.launch();game.level=3;game.startLevel();game.launch();
+  game.splitBall();game.energy=100;game.pulse();
+  for(let pass=0;pass<5;pass++){
+    const blasts=game.bricks.filter(b=>b.type==='blast');
+    if(!blasts.length)break;
+    const brick=blasts[0];
+    for(const b of game.activeBalls()){
+      if(!game.bricks.includes(brick)||game.state!=='playing')break;
+      b.x=brick.x+brick.w/2;b.y=brick.y+brick.h+b.r+.3;
+      b.vx=0;b.vy=-game.levelSpeed();
+      assert.doesNotThrow(()=>game.moveBall(.004,b,false));
+    }
+    assert.ok(game.particles.length<=180&&game.waves.length<=24);
+    assert.ok(game.activeBalls().length<=3);
+  }
+});
