@@ -40,8 +40,8 @@ with sync_playwright() as pw:
         page.add_script_tag(content=js)
         assert page.evaluate('window.__impulseDebug().state') == 'menu'
         assert page.locator('#compactSector').inner_text() == '01/03'
-        assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'mobile-ui-02-20261101'
-        assert page.locator('.eyebrow').inner_text() == 'АРКАДА • UI 0.2'
+        assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'gameplay-03-20261101'
+        assert page.locator('.eyebrow').inner_text() == 'АРКАДА • ИГРА 0.3'
         assert page.evaluate('document.documentElement.scrollWidth') <= width
         geometry = page.evaluate('''() => {
             const box = s => document.querySelector(s).getBoundingClientRect();
@@ -84,6 +84,24 @@ with sync_playwright() as pw:
         else:
             page.locator('#launchBtn').click()
         assert page.evaluate('window.__impulseDebug().state') == 'playing'
+        combo_stats = page.evaluate("""() => {
+            const initial=game.score;
+            for(let i=0;i<4;i++)game.hitBrick(game.bricks[0],0);
+            game.applyDrop('wide');
+            game.energy=100;
+            game.pulse();
+            game.draw();
+            return {combo:window.__impulseDebug().combo,
+                    multiplier:game.comboMultiplier(),
+                    gain:game.score-initial,
+                    timers:game.timers,
+                    marker:document.querySelector('meta[name="app-build"]').content};
+        }""")
+        assert combo_stats['combo'] == 4, combo_stats
+        assert combo_stats['multiplier'] == 2, combo_stats
+        assert combo_stats['gain'] >= 500, combo_stats
+        assert combo_stats['timers']['wide'] > 0 and combo_stats['timers']['pulse'] > 0, combo_stats
+        assert combo_stats['marker'] == 'gameplay-03-20261101', combo_stats
         page.locator('#pauseBtn').click()
         assert page.evaluate('window.__impulseDebug().state') == 'paused'
         page.locator('#overlayAction').click()

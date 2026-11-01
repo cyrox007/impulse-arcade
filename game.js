@@ -11,7 +11,7 @@ const CFG = Object.freeze({
   ballRadius: 8, initialSpeed: 315, maxSpeed: 525,
   brickW: 64, brickH: 25, brickGapX: 7, brickGapY: 9,
   brickStartX: 30, brickStartY: 110,
-  pulseDuration: 5.4, wideDuration: 12, slowDuration: 7,
+  pulseDuration: 5.4, wideDuration: 12, slowDuration: 7, comboWindow: 6,
   storageKey: 'impulse-arcade:best:v1'
 });
 
@@ -77,6 +77,8 @@ class Game {
     this.paddle={x:CFG.width/2,w:CFG.paddleW,y:CFG.paddleY,h:CFG.paddleH};this.targetX=this.paddle.x;
     this.ball={x:CFG.width/2,y:CFG.paddleY-14,vx:0,vy:0,r:CFG.ballRadius,trail:[]};
     this.timers={pulse:0,wide:0,slow:0};this.time=0;this.flash=0;
+    this.comboHits=0;this.comboUntil=0;this.bestComboInSector=0;
+    this.lastSectorBonus=0;this.lastSectorBestCombo=0;
     this.stars=Array.from({length:68},(_,i)=>({x:(i*137.37)%CFG.width,y:(i*231.59)%CFG.height,r:i%7===0?1.6:.8,s:(i%4)*.16+.18}));
     this.backdropLayer=createLayer();this.brickLayer=createLayer();this.bricksDirty=true;this.brickPaintCount=0;
     // A few tiny, transparent sprites replace gradients/shadows rebuilt every frame.
@@ -94,6 +96,21 @@ class Game {
     this.draw();this.showOverlay('intro');this.updateUI();
   }
   setState(state){this.state=state;this.updateUI()}
+  resetCombo(){this.comboHits=0;this.comboUntil=0}
+  comboMultiplier(){return Math.min(4,1+Math.floor(Math.max(0,this.comboHits-1)/3))}
+  registerHit(){
+    if(this.time>this.comboUntil)this.resetCombo();
+    this.comboHits++;this.comboUntil=this.time+CFG.comboWindow;
+    this.bestComboInSector=Math.max(this.bestComboInSector,this.comboHits);
+    return this.comboMultiplier();
+  }
+  // Enforce a minimum vertical component at extreme angles without changing speed.
+  stabilizeBallAngle(){
+    const b=this.ball,speed=this.ballSpeed(),minY=speed*.20;
+    if(speed<1 || Math.abs(b.vy)>=minY)return;
+    const directionY=b.vy<0?-1:1,directionX=b.vx<0?-1:1;
+    b.vy=directionY*minY;b.vx=directionX*Math.sqrt(speed*speed-minY*minY);
+  }
   resetBall(){
     this.ball={x:this.paddle.x,y:this.paddle.y-17,vx:0,vy:0,r:CFG.ballRadius,trail:[]};
     this.timers.pulse=0;this.timers.slow=0;
@@ -110,11 +127,13 @@ class Game {
   }
   startNewGame(){
     this.score=0;this.lives=3;this.energy=0;this.level=0;this.timers={pulse:0,wide:0,slow:0};
+    this.resetCombo();this.bestComboInSector=0;this.lastSectorBonus=0;this.lastSectorBestCombo=0;
     this.paddle.w=CFG.paddleW;this.paddle.x=CFG.width/2;this.targetX=this.paddle.x;
     this.drops=[];this.particles=[];this.startLevel();
   }
   startLevel(){
     this.makeBricks();this.drops=[];this.paddle.w=CFG.paddleW;this.timers.wide=0;
+    this.resetCombo();this.bestComboInSector=0;
     this.resetBall();this.setState('ready');this.hideOverlay();this.flash=0;this.updateUI();
   }
   launch(){
@@ -145,7 +164,7 @@ class Game {
   ballSpeed(){return Math.hypot(this.ball.vx,this.ball.vy)}
   setBallSpeed(speed){const current=this.ballSpeed();if(current<1)return;this.ball.vx*=speed/current;this.ball.vy*=speed/current}
   dropBall(){
-    this.lives--;this.addParticles(this.ball.x,CFG.bottom-20,22,'#f9a4d2');beep(170,.25,.07,'triangle');
+    this.lives--;this.resetCombo();this.addParticles(this.ball.x,CFG.bottom-20,22,'#f9a4d2');beep(170,.25,.07,'triangle');
     this.drops=[];this.timers.wide=0;this.paddle.w=CFG.paddleW;
     if(this.lives<=0){this.end('lost');return}
     this.resetBall();this.setState('ready');this.updateUI();
@@ -155,6 +174,10 @@ class Game {
     this.showOverlay(kind);beep(kind==='won'?720:180,.25,.04,'triangle');
   }
   completeLevel(){
+    this.lastSectorBestCombo=this.bestComboInSector;
+    this.lastSectorBonus=100*(this.level+1)*Math.max(0,this.lives);
+    this.score+=this.lastSectorBonus;
+    this.resetCombo();
     this.updateBest();this.addParticles(CFG.width/2,230,45,'#59efff');
     if(this.level===LEVELS.length-1)this.end('won');
     else {this.setState('between');this.showOverlay('between');beep(740,.19,.06)}
@@ -163,17 +186,18 @@ class Game {
   hitBrick(brick,index){
     if(brick.lock>0)return false;
     brick.lock=.11;brick.hp--;this.bricksDirty=true;
+    const multiplier=this.registerHit();
     this.addParticles(this.ball.x,this.ball.y,7,brick.type==='core'?'#ff8bd9':brick.type==='armor'?'#ffe2a3':'#69e4ff');
     if(brick.hp<=0){
       this.bricks.splice(index,1);
       const gain=brick.type==='core'?24:brick.type==='armor'?18:12;
-      this.score+=(brick.type==='core'?240:brick.type==='armor'?180:100)*(this.level+1);
+      this.score+=(brick.type==='core'?240:brick.type==='armor'?180:100)*(this.level+1)*multiplier;
       this.energy=clamp(this.energy+gain,0,100);
       this.maybeDrop(brick);
       beep(brick.type==='core'?620:480,.07,.025,'square');
       this.updateBest();
       if(this.bricks.length===0)this.completeLevel();
-    } else {this.score+=35;beep(290,.055,.028,'triangle')}
+    } else {this.score+=35*multiplier;beep(290,.055,.028,'triangle')}
     this.updateUI();return true;
   }
   maybeDrop(brick){
@@ -201,6 +225,7 @@ class Game {
     // A pause freezes both simulation and particles; only resumed play advances time.
     if(this.state==='paused')return;
     this.time+=dt;this.frame++;
+    if(this.comboHits>0&&this.time>this.comboUntil)this.resetCombo();
     if(this.flash>0)this.flash=Math.max(0,this.flash-dt);
     for(let i=this.particles.length-1;i>=0;i--){const p=this.particles[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=125*dt;p.life-=dt;if(p.life<=0)this.particles.splice(i,1)}
     if(this.state!=='ready'&&this.state!=='playing')return;
@@ -258,6 +283,7 @@ class Game {
       // Centre hits should not lock the ball into a vertical loop.
       if(Math.abs(angle)<.12)angle=(b.vx<0?-1:1)*.12;
       b.vx=speed*Math.sin(angle);b.vy=-Math.abs(speed*Math.cos(angle));
+      this.resetCombo();
       beep(275+Math.abs(relative)*180,.055,.023);
     }
     for(let i=this.bricks.length-1;i>=0;i--){
@@ -289,13 +315,14 @@ class Game {
       }
       if(this.state!=='playing')break;
     }
+    if(this.state==='playing')this.stabilizeBallAngle();
   }
   overlayContent(kind){
     const common={
       intro:{icon:'✦',kicker:'НОВАЯ АРКАДА',title:'ИМПУЛЬС',text:'Разрушай блоки, собирай усиления и заряжай пробивной импульс. Три сектора ждут тебя.',action:'НАЧАТЬ ИГРУ',small:'На телефоне двигай платформу пальцем по полю. На ПК — мышь или стрелки.'},
       pause:{icon:'Ⅱ',kicker:'ИГРА ПРИОСТАНОВЛЕНА',title:'ПАУЗА',text:'Шар ждёт твоего возвращения.',action:'ПРОДОЛЖИТЬ',small:'Клавиша P — пауза / продолжить.'},
-      between:{icon:'✧',kicker:'СЕКТОР ОЧИЩЕН',title:'ОТЛИЧНАЯ РАБОТА',text:`Следующий сектор: ${LEVELS[this.level+1]?.name ?? 'ФИНАЛ'}. Жизни и счёт сохраняются.`,action:'СЛЕДУЮЩИЙ СЕКТОР',small:'Впереди более прочные блоки.'},
-      won:{icon:'★',kicker:'МИССИЯ ВЫПОЛНЕНА',title:'ТРИ СЕКТОРА ПРОЙДЕНЫ',text:`Финальный счёт: ${this.score.toLocaleString('ru-RU')}. Твой рекорд: ${this.best.toLocaleString('ru-RU')}.`,action:'СЫГРАТЬ СНОВА',small:'Это только первая версия игры. Новые механики ещё впереди.'},
+      between:{icon:'✧',kicker:'СЕКТОР ОЧИЩЕН',title:'ОТЛИЧНАЯ РАБОТА',text:`Следующий сектор: ${LEVELS[this.level+1]?.name ?? 'ФИНАЛ'}. Бонус за жизни: +${this.lastSectorBonus}. Лучшая серия: ${this.lastSectorBestCombo}. Жизни и счёт сохраняются.`,action:'СЛЕДУЮЩИЙ СЕКТОР',small:'Впереди более прочные блоки.'},
+      won:{icon:'★',kicker:'МИССИЯ ВЫПОЛНЕНА',title:'ТРИ СЕКТОРА ПРОЙДЕНЫ',text:`Финальный счёт: ${this.score.toLocaleString('ru-RU')}. Бонус финального сектора: +${this.lastSectorBonus}. Твой рекорд: ${this.best.toLocaleString('ru-RU')}.`,action:'СЫГРАТЬ СНОВА',small:'Это только первая версия игры. Новые механики ещё впереди.'},
       lost:{icon:'✕',kicker:'ПОПЫТКА ЗАВЕРШЕНА',title:'ИГРА ОКОНЧЕНА',text:`Ты набрал ${this.score.toLocaleString('ru-RU')} очков. Попробуй ещё раз!`,action:'НОВАЯ ПОПЫТКА',small:'Старайся поймать бонусы: зелёный расширяет платформу, синий замедляет шар.'}
     }[kind];
     return `<div class="overlay-icon" aria-hidden="true">${common.icon}</div><div class="overlay-kicker">${common.kicker}</div><h2>${common.title}</h2><p>${common.text}</p><button type="button" class="overlay-action" id="overlayAction">${common.action}</button><div class="overlay-small">${common.small}</div>`;
@@ -338,7 +365,7 @@ class Game {
       this.drawBricks(ctx);
       this.bricksDirty=false;
     }
-    this.drawDrops();this.drawParticles();this.drawPaddle();this.drawBall();
+    this.drawDrops();this.drawParticles();this.drawPaddle();this.drawBall();this.drawGameplayStatus();
     if(this.flash>0){ctx.fillStyle=`rgba(252,114,201,${Math.min(.2,this.flash*.4)})`;ctx.fillRect(0,0,w,h)}
     // Opt-in on-device FPS overlay: ?fps=1 (no clutter during normal play).
     if(this.profileEnabled){
@@ -347,6 +374,22 @@ class Game {
       ctx.fillStyle='#c7edff';ctx.font='12px system-ui';ctx.textAlign='left';
       ctx.fillText(`FPS: ${m.fps}  max: ${m.maxFrameMs}ms`,CFG.left+13,CFG.height-94);
       ctx.fillText(`Логика: ${m.avgUpdateMs}мс  Графика: ${m.avgDrawMs}мс`,CFG.left+13,CFG.height-76);
+    }
+  }
+  drawGameplayStatus(){
+    if(!['playing','ready','paused'].includes(this.state))return;
+    ctx.textAlign='left';ctx.font='bold 12px system-ui';
+    if(this.comboHits>=2){
+      ctx.fillStyle='#ffcf80';
+      ctx.fillText(`СЕРИЯ ${this.comboHits}  ×${this.comboMultiplier()}`,CFG.left+9,77);
+    }
+    const effects=[];
+    if(this.timers.wide>0)effects.push(`ПЛАТФОРМА ${Math.ceil(this.timers.wide)}с`);
+    if(this.timers.slow>0)effects.push(`ЗАМЕДЛ. ${Math.ceil(this.timers.slow)}с`);
+    if(this.timers.pulse>0)effects.push(`ИМПУЛЬС ${Math.ceil(this.timers.pulse)}с`);
+    if(effects.length){
+      ctx.fillStyle='#a4f5ed';ctx.font='11px system-ui';
+      ctx.fillText(effects.join(' · '),CFG.left+9,94);
     }
   }
   drawBackdrop(target){
@@ -522,4 +565,4 @@ function loop(now){
 }
 requestAnimationFrame(loop);
 // Expose a read-only diagnostic snapshot for automated smoke tests, no gameplay cheats.
-window.__impulseDebug=()=>({state:game.state,score:game.score,level:game.level,lives:game.lives,bricks:game.bricks.length,energy:game.energy,fps:game.performance.fps,maxFrameMs:game.performance.maxFrameMs,avgUpdateMs:game.performance.avgUpdateMs,avgDrawMs:game.performance.avgDrawMs,spritePaintCount:game.spritePaintCount});
+window.__impulseDebug=()=>({state:game.state,score:game.score,level:game.level,lives:game.lives,bricks:game.bricks.length,energy:game.energy,combo:game.comboHits,fps:game.performance.fps,maxFrameMs:game.performance.maxFrameMs,avgUpdateMs:game.performance.avgUpdateMs,avgDrawMs:game.performance.avgDrawMs,spritePaintCount:game.spritePaintCount});
