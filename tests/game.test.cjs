@@ -8,14 +8,17 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const source = readFileSync(path.join(root, 'game.js'), 'utf8');
 
-function createEnvironment() {
+function createEnvironment({fpsDebug=false}={}) {
   const handlers = new Map();
+  const gradientCalls={linear:0,radial:0};
+  let animationFrame=null, clock=0;
   const records = new Map();
   const storage = new Map();
   const fakeGradient = {addColorStop() {}};
   const canvasContext = new Proxy({}, {
     get(target, property) {
-      if (property === 'createLinearGradient' || property === 'createRadialGradient') return () => fakeGradient;
+      if (property === 'createLinearGradient') return () => {gradientCalls.linear++;return fakeGradient;};
+      if (property === 'createRadialGradient') return () => {gradientCalls.radial++;return fakeGradient;};
       if (!Object.hasOwn(target, property)) target[property] = () => {};
       return target[property];
     }
@@ -40,17 +43,21 @@ function createEnvironment() {
     createElement(tag) {if(tag!=='canvas')throw Error('Unexpected element '+tag);return {width:0,height:0,getContext(){return canvasContext;}};},
     addEventListener(type, handler) { handlers.set('document:'+type, handler); }
   };
-  const window = {addEventListener(type, handler) {handlers.set('window:'+type, handler);}};
+  const window = {location:{search:fpsDebug?'?fps=1':''},
+    addEventListener(type, handler) {handlers.set('window:'+type, handler);}};
   const sandbox = {
     window, document,
     localStorage: {getItem(key) {return storage.get(key)??null;}, setItem(key,value) {storage.set(key,value);}},
-    performance: {now: () => 0},
-    requestAnimationFrame() {},
+    performance: {now: () => clock++ / 2},
+    requestAnimationFrame(cb) {animationFrame=cb;},
     console, Math, Array, Object, String, Number, Map
   };
   vm.createContext(sandbox);
   vm.runInContext(source, sandbox, {filename:'game.js'});
-  return { ...vm.runInContext('({game,CFG,LEVELS})', sandbox), handlers, elements:records, storage };
+  return { ...vm.runInContext('({game,CFG,LEVELS})', sandbox),
+    handlers, elements:records, storage, gradientCalls,
+    tick(now){if(!animationFrame)throw Error('RAF was not scheduled');animationFrame(now);}
+  };
 }
 
 test('стартовая сцена → готовность → запуск шара', () => {
@@ -399,4 +406,42 @@ test('perf: частицы ограничены и диагностически�
   assert.equal(game.particles.length,180);
   assert.equal(typeof game.performance.fps,'number');
   assert.equal(typeof game.performance.maxFrameMs,'number');
+});
+
+test('perf: sprites мяча и платформы создаются однократно и переиспользуются', () => {
+  const {game,CFG,gradientCalls}=createEnvironment();
+  assert.equal(game.spritePaintCount,4);
+  assert.ok(game.sprites.paddleNormal && game.sprites.paddleWide);
+  assert.ok(game.sprites.ballNormal && game.sprites.ballPulse);
+  assert.equal(game.sprites.ballNormal.width,CFG.ballRadius*2+72);
+  assert.equal(game.sprites.paddleWide.width,145+52);
+  game.launch();game.launch();game.draw();
+  const before={...gradientCalls},paints=game.spritePaintCount;
+  for(let i=0;i<120;i++)game.draw();
+  assert.deepEqual(gradientCalls,before,'moving objects must reuse cached gradients');
+  game.applyDrop('wide');
+  game.energy=100;game.pulse();
+  game.draw();
+  assert.equal(game.spritePaintCount,paints,'wide and pulse use pre-rendered assets');
+  assert.deepEqual(gradientCalls,before,'activation must not allocate new gradients');
+});
+
+test('perf: FPS-профайлер по умолчанию неактивен и включается только параметром', () => {
+  const defaultRun=createEnvironment();
+  assert.equal(defaultRun.game.profileEnabled,false);
+  const diagnostic=createEnvironment({fpsDebug:true});
+  assert.equal(diagnostic.game.profileEnabled,true);
+  diagnostic.game.launch();diagnostic.game.launch();
+  for(let i=1;i<=90;i++)diagnostic.tick(i*1000/60);
+  const p=diagnostic.game.performance;
+  assert.ok(p.fps>=58&&p.fps<=61);
+  assert.ok(p.avgUpdateMs>=0&&Number.isFinite(p.avgUpdateMs));
+  assert.ok(p.avgDrawMs>=0&&Number.isFinite(p.avgDrawMs));
+  assert.ok(p.maxFrameMs>=16&&p.maxFrameMs<=17);
+  assert.equal(typeof diagnostic.game.sprites.ballNormal,'object');
+  // The opt-in counters must not change physics or advance game time when paused.
+  diagnostic.game.togglePause();
+  const lastTime=diagnostic.game.time;
+  diagnostic.tick(91*1000/60);
+  assert.equal(diagnostic.game.time,lastTime);
 });
