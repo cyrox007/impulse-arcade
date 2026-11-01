@@ -160,7 +160,7 @@ test('статический сайт не зависит от внешних JS
   const html = readFileSync(path.join(root,'index.html'),'utf8');
   assert.match(html, /name="description"/);
   assert.match(html, /src="game\.js\?v=gameplay-03-20261101"/);
-  assert.match(html, /href="style\.css\?v=mobile-ui-02-20261101"/);
+  assert.match(html, /href="style\.css\?v=gameplay-03-20261101"/);
   assert.doesNotMatch(html, /<script[^>]*src="https?:\/\//i);
   assert.doesNotMatch(html, /<link[^>]*href="https?:\/\//i);
 });
