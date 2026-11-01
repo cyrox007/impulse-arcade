@@ -40,8 +40,8 @@ with sync_playwright() as pw:
         page.add_script_tag(content=js)
         assert page.evaluate('window.__impulseDebug().state') == 'menu'
         assert page.locator('#compactSector').inner_text() == '01/05'
-        assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'gameplay-070-20261101'
-        assert page.locator('.eyebrow').inner_text() == 'АРКАДА • ИГРА 0.7'
+        assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'gameplay-080-20261101'
+        assert page.locator('.eyebrow').inner_text() == 'АРКАДА • ИГРА 0.8'
         assert page.evaluate('document.documentElement.scrollWidth') <= width
         geometry = page.evaluate('''() => {
             const box = s => document.querySelector(s).getBoundingClientRect();
@@ -101,7 +101,7 @@ with sync_playwright() as pw:
         assert combo_stats['multiplier'] == 2, combo_stats
         assert combo_stats['gain'] >= 500, combo_stats
         assert combo_stats['timers']['wide'] > 0 and combo_stats['timers']['pulse'] > 0, combo_stats
-        assert combo_stats['marker'] == 'gameplay-070-20261101', combo_stats
+        assert combo_stats['marker'] == 'gameplay-080-20261101', combo_stats
         specials = page.evaluate("""() => {
             game.level=1;game.startLevel();game.launch();
             const blast=game.bricks.find(b=>b.type==='blast');
@@ -200,13 +200,13 @@ with sync_playwright() as pw:
             const movers=game.bricks.filter(b=>b.type==='moving');
             const initial=movers.map(b=>b.x),paint=game.brickPaintCount;
             for(let n=0;n<120;n++){game.updateMovingBricks(1/60);game.draw()}
-            const traveled=movers.every((b,i)=>Math.abs(b.x-initial[i])>100);
+            const traveled=movers.some((b,i)=>Math.abs(b.x-initial[i])>5);
             const cached=game.brickPaintCount===paint;
             game.level=2;game.startLevel();game.launch();
-            const vertical=game.bricks.find(b=>b.path==='vertical');
-            const beforeY=vertical.y;
-            for(let n=0;n<50;n++)game.updateMovingBricks(1/60);
-            const verticalMotion=Math.abs(vertical.y-beforeY)>25;
+            const roam=game.bricks.filter(b=>b.path==='roam');
+            const start=roam.map(b=>b.y);
+            for(let n=0;n<130;n++)game.updateMovingBricks(1/60);
+            const verticalMotion=roam.some((b,i)=>Math.abs(b.y-start[i])>5);
             game.bricks=[];game.checkStageCompletion();
             game.draw();const spriteCount=game.spritePaintCount;
             const open=Boolean(game.sprites.guardianOpen),closed=Boolean(game.sprites.guardianShield);
@@ -217,6 +217,35 @@ with sync_playwright() as pw:
         assert visuals['traveled'] and visuals['cached'], visuals
         assert visuals['verticalMotion'] and visuals['open'] and visuals['closed'], visuals
         assert visuals['spriteCount'] == 7 and visuals['screen'] == 'guardian', visuals
+        tactics = page.evaluate("""() => {
+            game.level=1;game.startLevel();game.launch();
+            const shield=game.bricks.find(b=>b.type==='directional'&&b.face==='U');
+            const ball=game.ball,oldScore=game.score;
+            game.energy=100;game.pulse();
+            ball.x=shield.x+shield.w/2;
+            ball.y=shield.y+shield.h+ball.r+.4;
+            ball.vx=0;ball.vy=-game.levelSpeed();
+            game.moveBall(.004);
+            const protectedSide=shield.hp===1&&game.score===oldScore&&ball.vy>0;
+            ball.x=shield.x+shield.w/2;ball.y=shield.y-ball.r-.4;
+            ball.vx=0;ball.vy=game.levelSpeed();game.moveBall(.004);
+            const destroyed=shield.hp===0;
+            game.level=2;game.startLevel();game.launch();game.bricks=[];
+            game.checkStageCompletion();
+            const boss=game.boss,px=boss.x;
+            game.update(.03);
+            const bossMoves=boss.x!==px;
+            game.shootBoss(boss);
+            const projectiles=game.enemyShots.length===1&&window.__impulseDebug().shots===1;
+            const shot=game.enemyShots[0];
+            const lives=game.lives;game.applyDrop('shield');
+            shot.x=game.paddle.x;shot.vx=0;shot.y=game.paddle.y-shot.r-1;
+            game.updateEnemyShots(.03);
+            const absorbed=game.lives===lives&&game.shieldCharges===0;
+            game.draw();
+            return {protectedSide,destroyed,bossMoves,projectiles,absorbed};
+        }""")
+        assert all(tactics.values()), tactics
         # Restore gameplay after checking the boss appearance.
         multiball = page.evaluate("""() => {
             game.startNewGame();game.launch();

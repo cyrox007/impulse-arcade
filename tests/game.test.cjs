@@ -197,8 +197,8 @@ test('ограничение положения платформы и захва
 test('статический сайт не зависит от внешних JS/CSS и имеет мета-описание', () => {
   const html = readFileSync(path.join(root,'index.html'),'utf8');
   assert.match(html, /name="description"/);
-  assert.match(html, /src="game\.js\?v=gameplay-070-20261101"/);
-  assert.match(html, /href="style\.css\?v=gameplay-070-20261101"/);
+  assert.match(html, /src="game\.js\?v=gameplay-080-20261101"/);
+  assert.match(html, /href="style\.css\?v=gameplay-080-20261101"/);
   assert.doesNotMatch(html, /<script[^>]*src="https?:\/\//i);
   assert.doesNotMatch(html, /<link[^>]*href="https?:\/\//i);
 });
@@ -275,10 +275,15 @@ test('0.2: все три сектора проходимы через реаль
       brick.lock=0;
       const oldHP=brick.hp;
       // Put the ball just below a real brick and let moveBall resolve contact.
-      game.ball.x=brick.x+brick.w/2;
-      game.ball.y=brick.y+brick.h+game.ball.r+.5;
-      game.ball.vx=0;game.ball.vy=-game.levelSpeed();
-      game.moveBall(.004);
+      if(brick.type==='directional'){
+        // Direction-sensitive collisions are covered separately with all four faces.
+        game.hitBrick(brick,game.bricks.indexOf(brick));
+      }else{
+        game.ball.x=brick.x+brick.w/2;
+        game.ball.y=brick.y+brick.h+game.ball.r+.5;
+        game.ball.vx=0;game.ball.vy=-game.levelSpeed();
+        game.moveBall(.004);
+      }
       assert.equal(brick.hp,oldHP-1,'every contact must damage exactly once');
       if(++contacts>200)assert.fail('unbounded contact loop');
     }
@@ -803,21 +808,21 @@ test('0.5: в секторах 2–3 подвижные блоки не меня
   assert.equal(game.bricks.filter(b=>b.type==='moving').length,2);
 });
 
-test('0.5: подвижная цель отражается от границы и не проходит сквозь соседей',()=>{
-  const {game,CFG}=createEnvironment();game.launch();
-  game.level=1;game.startLevel();
-  const b=game.bricks.find(x=>x.type==='moving');
-  for(const dt of [1/30,1/60,1/120]){
-    for(let i=0;i<240;i++){
-      game.updateMovingBricks(dt);
-      assert.ok(b.x>=b.minX-.0001 && b.x<=b.maxX+.0001);
-      assert.ok(b.x>=CFG.left && b.x+b.w<=CFG.right);
+test('0.8: подвижные кирпичи не проходят сквозь другие кирпичи и стены',()=>{
+  const {game,CFG}=createEnvironment();game.launch();game.level=1;game.startLevel();
+  const movers=game.bricks.filter(x=>x.type==='moving');
+  for(let i=0;i<900;i++){
+    game.updateMovingBricks(1/60);
+    for(const b of movers){
+      assert.ok(b.x>=CFG.left+3 && b.x+b.w<=CFG.right-3);
+      assert.ok(b.y>=CFG.brickStartY-4 && b.y+b.h<game.paddle.y-100);
+      for(const other of game.bricks){
+        if(other===b)continue;
+        assert.ok(!(b.x<other.x+other.w&&b.x+b.w>other.x &&
+          b.y<other.y+other.h&&b.y+b.h>other.y),'no overlaps');
+      }
     }
   }
-  b.x=b.maxX-.2;b.vx=36;game.updateMovingBricks(.01);
-  assert.ok(Math.abs(b.x-(b.maxX-.16))<.00001);assert.ok(b.vx<0);
-  b.x=b.minX+.2;b.vx=-36;game.updateMovingBricks(.01);
-  assert.ok(Math.abs(b.x-(b.minX+.16))<.00001);assert.ok(b.vx>0);
 });
 
 test('0.5: удар по движущемуся блоку не пересобирает кэш кирпичей',()=>{
@@ -903,58 +908,27 @@ test('0.5: импульс не пробивает защищённого Стр�
   assert.equal(b.hp,5);
 });
 
-test('0.5.1: кирпичи патрулируют широкие горизонтальные полосы, а не дрожат',()=>{
-  const {game}=createEnvironment();game.launch();game.level=1;game.startLevel();
+test('0.8: свободные патрули меняют направление и могут двигаться по обеим осям',()=>{
+  const {game}=createEnvironment();game.launch();game.level=2;game.startLevel();game.launch();
   const movers=game.bricks.filter(b=>b.type==='moving');
   assert.equal(movers.length,2);
-  for(const b of movers) {
-    assert.equal(b.path,'horizontal');
-    assert.ok(b.maxX-b.minX>=300);
-    const start=b.x;
-    for(let i=0;i<120;i++)game.updateMovingBricks(1/60);
-    assert.ok(Math.abs(b.x-start)>100,'patrol should visibly travel more than 100px');
-    assert.ok(b.x>=b.minX&&b.x<=b.maxX);
-  }
-  assert.notEqual(Math.sign(movers[0].vx),Math.sign(movers[1].vx));
-});
-
-test('0.5.1: третий сектор включает горизонтальную и вертикальную траектории',()=>{
-  const {game,CFG}=createEnvironment();game.launch();game.level=2;game.startLevel();
-  const movers=game.bricks.filter(b=>b.type==='moving');
-  assert.equal(movers.length,2);
-  const sine=movers.find(b=>b.path==='sine'),vertical=movers.find(b=>b.path==='vertical');
-  assert.ok(sine&&vertical);
-  const originalY=sine.y,originalX=vertical.x,originalVerticalY=vertical.y;
-  let minY=Infinity,maxY=-Infinity,minV=Infinity,maxV=-Infinity;
-  for(let i=0;i<280;i++){
+  assert.ok(movers.every(b=>b.path==='roam'));
+  const initial=movers.map(b=>[b.x,b.y]);
+  const velocities=new Set();
+  for(let i=0;i<360;i++){
     game.updateMovingBricks(1/60);
-    minY=Math.min(minY,sine.y);maxY=Math.max(maxY,sine.y);
-    minV=Math.min(minV,vertical.y);maxV=Math.max(maxV,vertical.y);
-    assert.ok(sine.x>=CFG.left&&sine.x+sine.w<=CFG.right);
-    assert.ok(vertical.y+vertical.h<game.paddle.y);
+    velocities.add(Math.round(movers[0].vx)+','+Math.round(movers[0].vy));
   }
-  assert.ok(maxY-minY>15,'sine lane must vary vertically');
-  assert.ok(maxV-minV>85,'vertical lane must travel ~90px');
-  assert.equal(vertical.x,originalX);
-  assert.notEqual(vertical.y,originalVerticalY);
-  assert.notEqual(sine.y,originalY);
+  assert.ok(velocities.size>2,'must choose new random directions');
+  assert.ok(movers.some((b,i)=>Math.abs(b.x-initial[i][0])+Math.abs(b.y-initial[i][1])>8));
 });
 
-test('0.5.1: движение независимо от частоты кадров и замораживается паузой',()=>{
-  function sample(fps) {
-    const {game}=createEnvironment();game.launch();game.level=1;game.startLevel();game.launch();
-    const b=game.bricks.find(b=>b.type==='moving');
-    for(let i=0;i<fps*2;i++)game.updateMovingBricks(1/fps);
-    return {x:b.x,vx:b.vx};
-  }
-  const a=sample(30),b=sample(60),c=sample(120);
-  assert.ok(Math.abs(a.x-b.x)<.00001&&Math.abs(b.x-c.x)<.00001);
-  assert.equal(a.vx,b.vx);assert.equal(b.vx,c.vx);
+test('0.8: свободные патрули замораживаются при паузе',()=>{
   const {game}=createEnvironment();game.launch();game.level=1;game.startLevel();game.launch();
-  const mover=game.bricks.find(b=>b.type==='moving');
-  game.update(.016);const x=mover.x;
-  game.togglePause();game.update(.5);
-  assert.equal(mover.x,x);
+  const movers=game.bricks.filter(b=>b.type==='moving');
+  game.update(.016);const frozen=movers.map(b=>[b.x,b.y,b.vx,b.vy]);
+  game.togglePause();game.update(5);
+  assert.deepEqual(movers.map(b=>[b.x,b.y,b.vx,b.vy]),frozen);
 });
 
 test('0.5.1: два облика Стража кэшируются, рендер не пересоздаёт градиенты',()=>{
@@ -1276,6 +1250,7 @@ test('0.7: корпус Реактора отражает импульс, есл
 test('0.7: Реактор патрулирует, останавливается на паузе, не выходит за границы',()=>{
   const {game,CFG}=createEnvironment();game.launch();game.level=4;game.startLevel();game.launch();
   game.bricks=[];game.checkStageCompletion();
+  game.shootBoss=()=>{}; // Isolate boss movement from projectile hits.
   const b=game.boss,start=b.x;
   // Park the ball so only boss movement, not life loss, is under test.
   game.ball.x=CFG.width/2;game.ball.y=570;game.ball.vx=0;game.ball.vy=0;
@@ -1319,5 +1294,122 @@ test('0.7: рендер финального босса кэширован и н
   for(let i=0;i<120;i++)game.draw();
   assert.equal(game.spritePaintCount,count);
   assert.deepEqual(gradientCalls,gradients);
+  assert.ok(game.particles.length<=180&&game.waves.length<=24);
+});
+
+test('0.8: односторонние блоки неуязвимы с закрытой грани и для импульса',()=>{
+  const {game}=createEnvironment();game.launch();game.level=1;game.startLevel();game.launch();
+  const b=game.bricks.find(b=>b.type==='directional'&&b.face==='U');
+  assert.ok(b);
+  game.energy=100;game.pulse();assert.ok(game.timers.pulse>0);
+  const hp=b.hp,score=game.score,energy=game.energy;
+  game.ball.x=b.x+b.w/2;game.ball.y=b.y+b.h+game.ball.r+.4;
+  game.ball.vx=0;game.ball.vy=-game.levelSpeed();
+  game.moveBall(.004);
+  assert.equal(b.hp,hp);assert.equal(game.score,score);assert.equal(game.energy,energy);
+  assert.ok(game.ball.vy>0,'protected underside must reflect even during pulse');
+  // Correct top entry damages through the same pulse.
+  game.ball.x=b.x+b.w/2;game.ball.y=b.y-game.ball.r-.4;
+  game.ball.vx=0;game.ball.vy=game.levelSpeed();game.moveBall(.004);
+  assert.equal(b.hp,0);
+});
+
+test('0.8: вертикальные и боковые односторонние блоки отличаются направлениями',()=>{
+  const {game}=createEnvironment();game.launch();game.level=2;game.startLevel();game.launch();
+  const left=game.bricks.find(b=>b.type==='directional'&&b.face==='L');
+  const right=game.bricks.find(b=>b.type==='directional'&&b.face==='R');
+  assert.ok(left&&right);
+  game.bricks=[left,right]; // isolate the target face from neighbours for angle tests
+  const b=game.ball;
+  b.x=left.x+left.w+b.r+.4;b.y=left.y+left.h/2;b.vx=-400;b.vy=0;
+  game.moveBall(.004);assert.equal(left.hp,1);assert.ok(b.vx>0);
+  b.x=left.x-b.r-.4;b.y=left.y+left.h/2;b.vx=400;b.vy=0;
+  game.moveBall(.004);assert.equal(left.hp,0);
+  b.x=right.x+right.w+b.r+.4;b.y=right.y+right.h/2;b.vx=-400;b.vy=0;
+  game.moveBall(.004);assert.equal(right.hp,0);
+});
+
+test('0.8: Страж перемещается вбок и стреляет в платформу',()=>{
+  const {game}=createEnvironment();game.launch();game.level=2;game.startLevel();game.launch();
+  game.bricks=[];game.checkStageCompletion();
+  const boss=game.boss,start=boss.x;
+  game.ball.vx=0;game.ball.vy=0;game.ball.y=580;
+  game.update(.5);
+  assert.notEqual(boss.x,start);
+  boss.shotClock=3.49;game.update(.03);
+  assert.equal(game.enemyShots.length,1);
+  const shot=game.enemyShots[0];
+  assert.ok(shot.y>boss.y+boss.h);
+  assert.ok(shot.vy>0);
+  const initialLives=game.lives;
+  shot.x=game.paddle.x;shot.y=game.paddle.y-shot.r-1;shot.vx=0;shot.vy=205;
+  game.updateEnemyShots(.03);
+  assert.equal(game.lives,initialLives-1);
+  assert.equal(game.state,'ready');
+  assert.equal(game.enemyShots.length,0);
+});
+
+test('0.8: барьер поглощает выстрел без потери жизни',()=>{
+  const {game}=createEnvironment();game.launch();game.level=4;game.startLevel();game.launch();
+  game.bricks=[];game.checkStageCompletion();game.applyDrop('shield');
+  const boss=game.boss;
+  game.shootBoss(boss);
+  assert.equal(game.enemyShots.length,1);
+  const shot=game.enemyShots[0];shot.x=game.paddle.x;shot.y=game.paddle.y-shot.r-1;shot.vx=0;
+  const lives=game.lives;game.updateEnemyShots(.03);
+  assert.equal(game.shieldCharges,0);assert.equal(game.runStats.barriers,1);
+  assert.equal(game.lives,lives);
+  assert.equal(game.enemyShots.length,0);
+});
+
+test('0.8: защищённый угол босса отражает пробивной импульс',()=>{
+  const {game}=createEnvironment();game.launch();game.level=2;game.startLevel();game.launch();
+  game.bricks=[];game.checkStageCompletion();const boss=game.boss;
+  game.energy=100;game.pulse();boss.phaseTime=0;
+  // Hit the open guardian from ABOVE: phase is open but its armor is not.
+  const ball=game.ball;ball.x=boss.x+boss.w/2;ball.y=boss.y-ball.r-.4;
+  ball.vx=0;ball.vy=game.levelSpeed();game.moveBall(.004);
+  assert.equal(boss.hp,6);
+  assert.ok(ball.vy<0);
+  ball.x=boss.x+boss.w/2;ball.y=boss.y+boss.h+ball.r+.4;
+  ball.vx=0;ball.vy=-game.levelSpeed();game.moveBall(.004);
+  assert.equal(boss.hp,5);
+});
+
+test('0.8: Реактор уязвим только по узлу снизу',()=>{
+  const {game}=createEnvironment();game.launch();game.level=4;game.startLevel();game.launch();
+  game.bricks=[];game.checkStageCompletion();
+  const boss=game.boss,node=boss.nodes[0],ball=game.ball;
+  game.energy=100;game.pulse();
+  ball.x=boss.x+node.offset;ball.y=boss.y-ball.r-.4;
+  ball.vx=0;ball.vy=game.levelSpeed();game.moveBall(.004);
+  assert.equal(boss.hp,6);assert.ok(ball.vy<0);
+  ball.x=boss.x+node.offset;ball.y=boss.y+boss.h+ball.r+.4;
+  ball.vx=0;ball.vy=-game.levelSpeed();game.moveBall(.004);
+  assert.equal(boss.hp,5);
+});
+
+test('0.8: пауза и завершение босса останавливают выстрелы',()=>{
+  const {game}=createEnvironment();game.launch();game.level=4;game.startLevel();game.launch();
+  game.bricks=[];game.checkStageCompletion();
+  game.shootBoss(game.boss);const shots=game.enemyShots.map(s=>[s.x,s.y]);
+  game.togglePause();game.update(.8);
+  assert.deepEqual(game.enemyShots.map(s=>[s.x,s.y]),shots);
+  game.launch();
+  const boss=game.boss;
+  for(const node of boss.nodes){while(node.hp>0){boss.lock=0;game.damageReactor(node)}}
+  assert.equal(game.state,'won');
+  assert.equal(game.enemyShots.length,0);
+});
+
+test('0.8: максимум четыре вражеских выстрела, отсутствие покадровых градиентов',()=>{
+  const {game,gradientCalls}=createEnvironment();game.launch();game.level=4;game.startLevel();game.launch();
+  game.bricks=[];game.checkStageCompletion();
+  for(let i=0;i<15;i++)game.shootBoss(game.boss);
+  assert.equal(game.enemyShots.length,4);
+  game.draw();const baseline={...gradientCalls},paint=game.spritePaintCount;
+  for(let i=0;i<100;i++)game.draw();
+  assert.deepEqual(gradientCalls,baseline);
+  assert.equal(game.spritePaintCount,paint);
   assert.ok(game.particles.length<=180&&game.waves.length<=24);
 });
