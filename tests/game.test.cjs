@@ -1230,7 +1230,7 @@ test('0.7: финальный Реактор появляется после в�
   assert.equal(game.state,'playing');
   assert.equal(game.sectorPhase,'reactor');
   assert.equal(game.boss?.kind,'reactor');
-  assert.deepEqual(game.boss.nodes.map(n=>n.hp),[2,2,2]);
+  assert.equal(game.boss.nodes.map(n=>n.hp).join(','),'2,2,2');
   assert.equal(game.lastSectorBonus,0);
 });
 
@@ -1277,6 +1277,8 @@ test('0.7: Реактор патрулирует, останавливается
   const {game,CFG}=createEnvironment();game.launch();game.level=4;game.startLevel();game.launch();
   game.bricks=[];game.checkStageCompletion();
   const b=game.boss,start=b.x;
+  // Park the ball so only boss movement, not life loss, is under test.
+  game.ball.x=CFG.width/2;game.ball.y=570;game.ball.vx=0;game.ball.vy=0;
   for(const fps of [30,60,120])for(let i=0;i<fps*2;i++){
     game.update(1/fps);
     assert.ok(b.x>=b.minX-1e-5&&b.x<=b.maxX+1e-5);
