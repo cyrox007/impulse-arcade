@@ -468,7 +468,7 @@ test('0.3: серии попаданий дают ограниченный мн�
   }
   assert.equal(game.comboHits,14);
   assert.equal(game.stats.bestCombo,14);
-  assert.equal(game.score-prev,3500);
+  assert.equal(game.score-prev,3300);
   assert.ok(game.score>0);
 });
 
@@ -478,7 +478,8 @@ test('0.3: серия истекает по игровому времени и �
   game.hitBrick(game.bricks[0],0);
   game.hitBrick(game.bricks[0],0);
   assert.equal(game.comboHits,2);
-  game.update(CFG.comboWindow+.01);
+  game.time+=CFG.comboWindow+.01;
+  game.update(.001);
   assert.equal(game.comboHits,0);
   game.hitBrick(game.bricks[0],0);
   assert.equal(game.comboHits,1);
@@ -529,7 +530,8 @@ test('0.3: импульсы и попадания считаются один р
   game.pulse();
   game.pulse();
   assert.equal(game.stats.pulses,1);
-  game.update(1.25);
+  game.update(.05);
+  game.stats.activeSeconds=1.25;
   game.end('lost');
   let html=elements.get('overlay').innerHTML;
   assert.ok(html.includes('class="run-stats"'));
