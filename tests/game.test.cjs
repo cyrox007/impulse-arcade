@@ -803,21 +803,21 @@ test('0.5: в секторах 2–3 подвижные блоки не меня
   assert.equal(game.bricks.filter(b=>b.type==='moving').length,2);
 });
 
-test('0.5: подвижная цель отражается от границы и не проходит сквозь соседей',()=>{
-  const {game,CFG}=createEnvironment();game.launch();
-  game.level=1;game.startLevel();
-  const b=game.bricks.find(x=>x.type==='moving');
-  for(const dt of [1/30,1/60,1/120]){
-    for(let i=0;i<240;i++){
-      game.updateMovingBricks(dt);
-      assert.ok(b.x>=b.minX-.0001 && b.x<=b.maxX+.0001);
-      assert.ok(b.x>=CFG.left && b.x+b.w<=CFG.right);
+test('0.8: подвижные кирпичи не проходят сквозь другие кирпичи и стены',()=>{
+  const {game,CFG}=createEnvironment();game.launch();game.level=1;game.startLevel();
+  const movers=game.bricks.filter(x=>x.type==='moving');
+  for(let i=0;i<900;i++){
+    game.updateMovingBricks(1/60);
+    for(const b of movers){
+      assert.ok(b.x>=CFG.left+3 && b.x+b.w<=CFG.right-3);
+      assert.ok(b.y>=CFG.brickStartY-4 && b.y+b.h<game.paddle.y-100);
+      for(const other of game.bricks){
+        if(other===b)continue;
+        assert.ok(!(b.x<other.x+other.w&&b.x+b.w>other.x &&
+          b.y<other.y+other.h&&b.y+b.h>other.y),'no overlaps');
+      }
     }
   }
-  b.x=b.maxX-.2;b.vx=36;game.updateMovingBricks(.01);
-  assert.ok(Math.abs(b.x-(b.maxX-.16))<.00001);assert.ok(b.vx<0);
-  b.x=b.minX+.2;b.vx=-36;game.updateMovingBricks(.01);
-  assert.ok(Math.abs(b.x-(b.minX+.16))<.00001);assert.ok(b.vx>0);
 });
 
 test('0.5: удар по движущемуся блоку не пересобирает кэш кирпичей',()=>{
@@ -903,58 +903,27 @@ test('0.5: импульс не пробивает защищённого Стр�
   assert.equal(b.hp,5);
 });
 
-test('0.5.1: кирпичи патрулируют широкие горизонтальные полосы, а не дрожат',()=>{
-  const {game}=createEnvironment();game.launch();game.level=1;game.startLevel();
+test('0.8: свободные патрули меняют направление и могут двигаться по обеим осям',()=>{
+  const {game}=createEnvironment();game.launch();game.level=2;game.startLevel();game.launch();
   const movers=game.bricks.filter(b=>b.type==='moving');
   assert.equal(movers.length,2);
-  for(const b of movers) {
-    assert.equal(b.path,'horizontal');
-    assert.ok(b.maxX-b.minX>=300);
-    const start=b.x;
-    for(let i=0;i<120;i++)game.updateMovingBricks(1/60);
-    assert.ok(Math.abs(b.x-start)>100,'patrol should visibly travel more than 100px');
-    assert.ok(b.x>=b.minX&&b.x<=b.maxX);
-  }
-  assert.notEqual(Math.sign(movers[0].vx),Math.sign(movers[1].vx));
-});
-
-test('0.5.1: третий сектор включает горизонтальную и вертикальную траектории',()=>{
-  const {game,CFG}=createEnvironment();game.launch();game.level=2;game.startLevel();
-  const movers=game.bricks.filter(b=>b.type==='moving');
-  assert.equal(movers.length,2);
-  const sine=movers.find(b=>b.path==='sine'),vertical=movers.find(b=>b.path==='vertical');
-  assert.ok(sine&&vertical);
-  const originalY=sine.y,originalX=vertical.x,originalVerticalY=vertical.y;
-  let minY=Infinity,maxY=-Infinity,minV=Infinity,maxV=-Infinity;
-  for(let i=0;i<280;i++){
+  assert.ok(movers.every(b=>b.path==='roam'));
+  const initial=movers.map(b=>[b.x,b.y]);
+  const velocities=new Set();
+  for(let i=0;i<360;i++){
     game.updateMovingBricks(1/60);
-    minY=Math.min(minY,sine.y);maxY=Math.max(maxY,sine.y);
-    minV=Math.min(minV,vertical.y);maxV=Math.max(maxV,vertical.y);
-    assert.ok(sine.x>=CFG.left&&sine.x+sine.w<=CFG.right);
-    assert.ok(vertical.y+vertical.h<game.paddle.y);
+    velocities.add(Math.round(movers[0].vx)+','+Math.round(movers[0].vy));
   }
-  assert.ok(maxY-minY>15,'sine lane must vary vertically');
-  assert.ok(maxV-minV>85,'vertical lane must travel ~90px');
-  assert.equal(vertical.x,originalX);
-  assert.notEqual(vertical.y,originalVerticalY);
-  assert.notEqual(sine.y,originalY);
+  assert.ok(velocities.size>2,'must choose new random directions');
+  assert.ok(movers.some((b,i)=>Math.abs(b.x-initial[i][0])+Math.abs(b.y-initial[i][1])>8));
 });
 
-test('0.5.1: движение независимо от частоты кадров и замораживается паузой',()=>{
-  function sample(fps) {
-    const {game}=createEnvironment();game.launch();game.level=1;game.startLevel();game.launch();
-    const b=game.bricks.find(b=>b.type==='moving');
-    for(let i=0;i<fps*2;i++)game.updateMovingBricks(1/fps);
-    return {x:b.x,vx:b.vx};
-  }
-  const a=sample(30),b=sample(60),c=sample(120);
-  assert.ok(Math.abs(a.x-b.x)<.00001&&Math.abs(b.x-c.x)<.00001);
-  assert.equal(a.vx,b.vx);assert.equal(b.vx,c.vx);
+test('0.8: свободные патрули замораживаются при паузе',()=>{
   const {game}=createEnvironment();game.launch();game.level=1;game.startLevel();game.launch();
-  const mover=game.bricks.find(b=>b.type==='moving');
-  game.update(.016);const x=mover.x;
-  game.togglePause();game.update(.5);
-  assert.equal(mover.x,x);
+  const movers=game.bricks.filter(b=>b.type==='moving');
+  game.update(.016);const frozen=movers.map(b=>[b.x,b.y,b.vx,b.vy]);
+  game.togglePause();game.update(5);
+  assert.deepEqual(movers.map(b=>[b.x,b.y,b.vx,b.vy]),frozen);
 });
 
 test('0.5.1: два облика Стража кэшируются, рендер не пересоздаёт градиенты',()=>{
