@@ -202,7 +202,7 @@ with sync_playwright() as pw:
             const survived=game.lives===lives&&game.activeBalls().length===2;
             game.applyDrop('magnet');
             const b=game.ball;
-            b.x=game.paddle.x;b.y=game.paddle.y-b.r-1;
+            b.x=game.paddle.x;b.y=game.paddle.y-b.r-.2;
             b.vx=0;b.vy=300;game.moveBall(.001,b,false);
             const caught=b.held&&window.__impulseDebug().held===1;
             const button=document.querySelector('#launchBtn');
