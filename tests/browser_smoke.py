@@ -40,8 +40,8 @@ with sync_playwright() as pw:
         page.add_script_tag(content=js)
         assert page.evaluate('window.__impulseDebug().state') == 'menu'
         assert page.locator('#compactSector').inner_text() == '01/03'
-        assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'gameplay-05-20261101'
-        assert page.locator('.eyebrow').inner_text() == 'АРКАДА • ИГРА 0.5'
+        assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'gameplay-051-20261101'
+        assert page.locator('.eyebrow').inner_text() == 'АРКАДА • ИГРА 0.5.1'
         assert page.evaluate('document.documentElement.scrollWidth') <= width
         geometry = page.evaluate('''() => {
             const box = s => document.querySelector(s).getBoundingClientRect();
@@ -101,7 +101,7 @@ with sync_playwright() as pw:
         assert combo_stats['multiplier'] == 2, combo_stats
         assert combo_stats['gain'] >= 500, combo_stats
         assert combo_stats['timers']['wide'] > 0 and combo_stats['timers']['pulse'] > 0, combo_stats
-        assert combo_stats['marker'] == 'gameplay-05-20261101', combo_stats
+        assert combo_stats['marker'] == 'gameplay-051-20261101', combo_stats
         specials = page.evaluate("""() => {
             game.level=1;game.startLevel();game.launch();
             const blast=game.bricks.find(b=>b.type==='blast');
@@ -166,6 +166,31 @@ with sync_playwright() as pw:
         assert guardian_stats['moved'] and guardian_stats['cache'], guardian_stats
         assert guardian_stats['spawned'] and guardian_stats['hits'] == 6, guardian_stats
         assert guardian_stats['won'] and guardian_stats['overlay'] and guardian_stats['restored'], guardian_stats
+        visuals = page.evaluate("""() => {
+            game.level=1;game.startLevel();game.launch();game.draw();
+            const movers=game.bricks.filter(b=>b.type==='moving');
+            const initial=movers.map(b=>b.x),paint=game.brickPaintCount;
+            for(let n=0;n<120;n++){game.updateMovingBricks(1/60);game.draw()}
+            const traveled=movers.every((b,i)=>Math.abs(b.x-initial[i])>100);
+            const cached=game.brickPaintCount===paint;
+            game.level=2;game.startLevel();game.launch();
+            const vertical=game.bricks.find(b=>b.path==='vertical');
+            const beforeY=vertical.y;
+            for(let n=0;n<50;n++)game.updateMovingBricks(1/60);
+            const verticalMotion=Math.abs(vertical.y-beforeY)>25;
+            game.bricks=[];game.checkStageCompletion();
+            game.draw();const spriteCount=game.spritePaintCount;
+            const open=Boolean(game.sprites.guardianOpen),closed=Boolean(game.sprites.guardianShield);
+            game.boss.phaseTime=2.7;game.draw();
+            return {traveled,cached,verticalMotion,open,closed,spriteCount,
+                    screen:window.__impulseDebug().phase};
+        }""")
+        assert visuals['traveled'] and visuals['cached'], visuals
+        assert visuals['verticalMotion'] and visuals['open'] and visuals['closed'], visuals
+        assert visuals['spriteCount'] == 6 and visuals['screen'] == 'guardian', visuals
+        # Restore gameplay after checking the boss appearance.
+        page.evaluate("game.startNewGame();game.launch()")
+
 
         page.locator('#pauseBtn').click()
         assert page.evaluate('window.__impulseDebug().state') == 'paused'
@@ -203,8 +228,8 @@ with sync_playwright() as pw:
                     paddle:!!game.sprites.paddleWide,
                     visibleStats:window.__impulseDebug().avgDrawMs};
         }""")
-        assert sprite_stats['before'] == 4, sprite_stats
-        assert sprite_stats['after'] == 4, sprite_stats
+        assert sprite_stats['before'] == 6, sprite_stats
+        assert sprite_stats['after'] == 6, sprite_stats
         assert sprite_stats['ball'] and sprite_stats['paddle'], sprite_stats
         assert isinstance(sprite_stats['visibleStats'], (int, float)), sprite_stats
         print(f"{label}: sector3 90 paints in {paint_stats['ms']:.1f}ms (desktop/mobile emulation)")
