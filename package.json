@@ -1,0 +1,11 @@
+{
+  "name": "impulse-arcade",
+  "private": true,
+  "version": "0.1.0",
+  "description": "ИМПУЛЬС — автономный браузерный арканоид",
+  "scripts": {
+    "test": "node --test tests/*.test.cjs",
+    "check": "node --check game.js && npm test"
+  },
+  "engines": {"node": ">=20"}
+}
