@@ -40,8 +40,8 @@ with sync_playwright() as pw:
         page.add_script_tag(content=js)
         assert page.evaluate('window.__impulseDebug().state') == 'menu'
         assert page.locator('#compactSector').inner_text() == '01/03'
-        assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'gameplay-051-20261101'
-        assert page.locator('.eyebrow').inner_text() == 'АРКАДА • ИГРА 0.5.1'
+        assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'gameplay-060-20261101'
+        assert page.locator('.eyebrow').inner_text() == 'АРКАДА • ИГРА 0.6'
         assert page.evaluate('document.documentElement.scrollWidth') <= width
         geometry = page.evaluate('''() => {
             const box = s => document.querySelector(s).getBoundingClientRect();
@@ -101,7 +101,7 @@ with sync_playwright() as pw:
         assert combo_stats['multiplier'] == 2, combo_stats
         assert combo_stats['gain'] >= 500, combo_stats
         assert combo_stats['timers']['wide'] > 0 and combo_stats['timers']['pulse'] > 0, combo_stats
-        assert combo_stats['marker'] == 'gameplay-051-20261101', combo_stats
+        assert combo_stats['marker'] == 'gameplay-060-20261101', combo_stats
         specials = page.evaluate("""() => {
             game.level=1;game.startLevel();game.launch();
             const blast=game.bricks.find(b=>b.type==='blast');
@@ -189,6 +189,35 @@ with sync_playwright() as pw:
         assert visuals['verticalMotion'] and visuals['open'] and visuals['closed'], visuals
         assert visuals['spriteCount'] == 6 and visuals['screen'] == 'guardian', visuals
         # Restore gameplay after checking the boss appearance.
+        multiball = page.evaluate("""() => {
+            game.startNewGame();game.launch();
+            game.level=1;game.startLevel();game.launch();
+            const prism=game.bricks.find(b=>b.type==='prism');
+            game.hitBrick(prism,game.bricks.indexOf(prism));
+            const spawned=game.activeBalls().length===3&&window.__impulseDebug().balls===3;
+            const first=game.ball;
+            first.y=CFG.bottom+first.r+2;first.vy=240;
+            const lives=game.lives;
+            game.moveBall(.001,first,false);
+            const survived=game.lives===lives&&game.activeBalls().length===2;
+            game.applyDrop('magnet');
+            const b=game.ball;
+            b.x=game.paddle.x;b.y=game.paddle.y-b.r-.2;
+            b.vx=0;b.vy=300;game.moveBall(.001,b,false);
+            const caught=b.held&&window.__impulseDebug().held===1;
+            const button=document.querySelector('#launchBtn');
+            const enabled=!button.disabled;
+            game.draw();button.click();
+            const released=!b.held&&b.vy<0;
+            game.level=2;game.startLevel();game.launch();
+            const energy=game.energy,charge=game.bricks.find(b=>b.type==='charge');
+            game.hitBrick(charge,game.bricks.indexOf(charge));
+            const charged=game.energy===energy+42;
+            game.draw();
+            return {spawned,survived,caught,enabled,released,charged};
+        }""")
+        assert all(multiball.values()), multiball
+        # Resume a neutral state for existing pause and renderer checks.
         page.evaluate("game.startNewGame();game.launch()")
 
 

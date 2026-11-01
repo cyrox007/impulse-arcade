@@ -177,8 +177,8 @@ test('ограничение положения платформы и захва
 test('статический сайт не зависит от внешних JS/CSS и имеет мета-описание', () => {
   const html = readFileSync(path.join(root,'index.html'),'utf8');
   assert.match(html, /name="description"/);
-  assert.match(html, /src="game\.js\?v=gameplay-051-20261101"/);
-  assert.match(html, /href="style\.css\?v=gameplay-051-20261101"/);
+  assert.match(html, /src="game\.js\?v=gameplay-060-20261101"/);
+  assert.match(html, /href="style\.css\?v=gameplay-060-20261101"/);
   assert.doesNotMatch(html, /<script[^>]*src="https?:\/\//i);
   assert.doesNotMatch(html, /<link[^>]*href="https?:\/\//i);
 });
@@ -981,4 +981,186 @@ test('0.5.1: новые маршруты не требуют перерисов�
   assert.equal(game.brickPaintCount,first);
   assert.deepEqual(gradientCalls,gradients);
   assert.equal(game.bricksDirty,false);
+});
+
+test('0.6: мультишар создаёт максимум три самостоятельных мяча',()=>{
+  const {game}=createEnvironment();game.launch();game.launch();
+  assert.equal(game.activeBalls().length,1);
+  assert.equal(game.splitBall(),true);
+  assert.equal(game.activeBalls().length,3);
+  const coords=game.activeBalls().map(b=>[b.x,b.y,b.vx,b.vy]);
+  assert.ok(game.extraBalls.every(b=>b!==game.ball&&b.trail.length===0));
+  assert.notEqual(coords[1][2],coords[2][2]);
+  assert.equal(game.splitBall(),false);
+  assert.equal(game.activeBalls().length,3);
+  assert.equal(game.runStats.splits,1);
+  assert.doesNotThrow(()=>game.drawBall());
+});
+
+test('0.6: призма создаёт новые шары, а энергоблок заряжает импульс',()=>{
+  const {game}=createEnvironment();game.launch();game.level=1;game.startLevel();game.launch();
+  const prism=game.bricks.find(b=>b.type==='prism');
+  assert.ok(prism);
+  game.hitBrick(prism,game.bricks.indexOf(prism));
+  assert.equal(game.activeBalls().length,3);
+  assert.ok(game.waves.length>0);
+  game.level=2;game.startLevel();game.launch();
+  const charge=game.bricks.find(b=>b.type==='charge');
+  assert.ok(charge);
+  const energy=game.energy;
+  game.hitBrick(charge,game.bricks.indexOf(charge));
+  assert.equal(game.energy,energy+42);
+  assert.ok(game.score>0);
+});
+
+test('0.6: при потере дополнительных мячей жизни не списываются',()=>{
+  const {game,CFG}=createEnvironment();game.launch();game.launch();game.splitBall();
+  const lives=game.lives,initial=game.ball;
+  const extra=game.extraBalls[0];
+  extra.y=CFG.bottom+extra.r+2;extra.vy=300;
+  game.moveBall(.001,extra,false);
+  assert.equal(game.lives,lives);
+  assert.equal(game.activeBalls().length,2);
+  assert.equal(game.ball,initial);
+  // Primary ball is lost, another ball becomes primary and continues playing.
+  initial.y=CFG.bottom+initial.r+2;initial.vy=300;
+  game.moveBall(.001,initial,false);
+  assert.equal(game.lives,lives);
+  assert.equal(game.activeBalls().length,1);
+  assert.equal(game.state,'playing');
+  const last=game.ball;
+  last.y=CFG.bottom+last.r+2;last.vy=300;
+  game.moveBall(.001,last,false);
+  assert.equal(game.lives,lives-1);
+  assert.equal(game.state,'ready');
+  assert.equal(game.activeBalls().length,1);
+});
+
+test('0.6: барьер спасает конкретный мяч и расходуется один раз',()=>{
+  const {game,CFG}=createEnvironment();game.launch();game.launch();game.splitBall();
+  game.applyDrop('shield');
+  const second=game.extraBalls[0];
+  second.y=CFG.bottom+second.r+2;second.vy=300;
+  game.moveBall(.001,second,false);
+  assert.equal(game.shieldCharges,0);
+  assert.equal(game.runStats.barriers,1);
+  assert.ok(second.vy<0);
+  assert.equal(game.activeBalls().length,3);
+  assert.equal(game.lives,3);
+  second.y=CFG.bottom+second.r+2;second.vy=300;
+  game.moveBall(.001,second,false);
+  assert.equal(game.activeBalls().length,2);
+  assert.equal(game.runStats.barriers,1);
+  assert.equal(game.lives,3);
+});
+
+test('0.6: магнит удерживает шар и отпускает по кнопке запуска',()=>{
+  const {game,CFG,elements}=createEnvironment();game.launch();game.launch();
+  game.applyDrop('magnet');assert.equal(game.timers.magnet,12);
+  const b=game.ball;
+  b.x=game.paddle.x+14;b.y=game.paddle.y-b.r-.2;b.vx=100;b.vy=300;
+  game.moveBall(.001);
+  assert.equal(b.held,true);
+  assert.equal(game.state,'playing');
+  assert.equal(elements.get('launchBtn').disabled,false);
+  assert.ok(elements.get('launchLabel').textContent.includes('ОТПУСТИТЬ'));
+  game.targetX=game.paddle.x+50;game.update(.016);
+  assert.ok(b.x>CFG.width/2+14,'held ball follows the paddle');
+  game.launch();
+  assert.equal(b.held,false);
+  assert.ok(b.vy<0&&game.ballSpeed(b)>0);
+  assert.equal(game.state,'playing');
+});
+
+test('0.6: магнит автоматически отпускает мяч и не блокирует паузу',()=>{
+  const {game}=createEnvironment();game.launch();game.launch();
+  game.applyDrop('magnet');
+  const b=game.ball;
+  b.y=game.paddle.y-b.r-.2;b.x=game.paddle.x;
+  b.vx=50;b.vy=300;game.moveBall(.001);
+  assert.equal(b.held,true);
+  game.togglePause();game.update(2);
+  assert.equal(b.held,true);
+  game.launch();
+  for(let i=0;i<40;i++)game.update(.033);
+  assert.equal(b.held,false);
+  assert.equal(game.state,'playing');
+  assert.ok(Number.isFinite(b.vx)&&Number.isFinite(b.vy));
+});
+
+test('0.6: замедление и импульс действуют на все активные мячи',()=>{
+  const {game,CFG}=createEnvironment();game.launch();game.launch();game.splitBall();
+  const old=game.activeBalls().map(b=>game.ballSpeed(b));
+  game.applyDrop('slow');
+  for(let i=0;i<3;i++)assert.ok(game.ballSpeed(game.activeBalls()[i])<old[i]);
+  game.energy=100;game.pulse();
+  assert.equal(game.runStats.pulses,1);
+  assert.equal(game.energy,0);
+  assert.ok(game.activeBalls().every(b=>game.ballSpeed(b)<=CFG.maxSpeed));
+  game.update(.02);
+  assert.equal(game.activeBalls().length,3);
+  game.togglePause();
+  const before=game.activeBalls().map(b=>[b.x,b.y]);
+  game.update(.3);
+  assert.deepEqual(game.activeBalls().map(b=>[b.x,b.y]),before);
+});
+
+test('0.6: динамические кирпичи обновляются один раз за подшаг при трёх мячах',()=>{
+  const {game}=createEnvironment();game.launch();game.level=1;game.startLevel();game.launch();
+  game.splitBall();
+  const brick=game.bricks.find(b=>b.type==='moving');
+  const x=brick.x,v=brick.vx;
+  game.ball.y=600;
+  for(const b of game.extraBalls){b.y=590;b.vy=-100}
+  game.update(.012); // two 6ms steps for every ball, one moving-target update per step.
+  assert.ok(Math.abs(brick.x-(x+v*.012))<.00001);
+});
+
+test('0.6: рестарт и переход сектора очищают шары и магнит',()=>{
+  const {game}=createEnvironment();game.launch();game.launch();
+  game.splitBall();game.applyDrop('magnet');
+  while(game.bricks.length){const b=game.bricks[game.bricks.length-1];b.lock=0;game.hitBrick(b,game.bricks.length-1)}
+  assert.equal(game.state,'between');
+  game.launch();
+  assert.equal(game.level,1);
+  assert.equal(game.activeBalls().length,1);
+  assert.equal(game.timers.magnet,0);
+  game.launch();game.splitBall();
+  game.startNewGame();
+  assert.equal(game.activeBalls().length,1);
+  assert.equal(game.runStats.splits,0);
+});
+
+test('0.6: с мультишаром Страж уязвим только при открытом щите и не получает двойного урона',()=>{
+  const {game}=createEnvironment();game.launch();game.level=2;game.startLevel();game.launch();
+  game.splitBall();game.bricks=[];game.checkStageCompletion();
+  const boss=game.boss;assert.ok(boss);
+  boss.phaseTime=0;
+  for(const b of game.activeBalls()){
+    b.x=boss.x+boss.w/2;
+    b.y=boss.y+boss.h+b.r+.4;b.vx=0;b.vy=-game.levelSpeed();
+    game.moveBall(.004,b,false);
+  }
+  assert.equal(boss.hp,5,'one hit lock shared across all balls');
+  boss.phaseTime=2.7;boss.lock=0;
+  const b=game.extraBalls[0];
+  b.x=boss.x+boss.w/2;b.y=boss.y+boss.h+b.r+.4;b.vx=0;b.vy=-game.levelSpeed();
+  game.moveBall(.004,b,false);
+  assert.equal(boss.hp,5,'shield blocks extra ball');
+});
+
+test('0.6: FPS 30/60/120 не вызывает потери управления при трёх мячах',()=>{
+  for(const fps of [30,60,120]){
+    const {game,CFG}=createEnvironment();game.launch();game.launch();game.splitBall();
+    for(let i=0;i<fps;i++){
+      game.update(1/fps);
+      for(const b of game.activeBalls()){
+        assert.ok(Number.isFinite(b.x)&&Number.isFinite(b.y));
+        assert.ok(b.x>=CFG.left-1&&b.x<=CFG.right+1);
+      }
+      if(game.state==='ready')game.launch();
+    }
+    assert.ok(game.activeBalls().length>=1&&game.activeBalls().length<=3);
+    assert.ok(game.particles.length<=180&&game.waves.length<=24);
+  }
 });
