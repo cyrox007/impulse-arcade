@@ -1186,3 +1186,136 @@ test('0.6: FPS 30/60/120 не вызывает потери управления
     assert.ok(game.particles.length<=180&&game.waves.length<=24);
   }
 });
+
+test('0.7: пять секторов, уникальные схемы и возрастающая сложность',()=>{
+  const {game,LEVELS,CFG}=createEnvironment();
+  assert.equal(LEVELS.length,5);
+  assert.ok(LEVELS.every(l=>l.rows.every(row=>row.length===6)));
+  const speed=LEVELS.map((_,i)=>{game.level=i;return game.levelSpeed()});
+  assert.ok(speed.every((v,i)=>i===0||v>speed[i-1]));
+  assert.ok(speed.every(v=>v<=CFG.maxSpeed));
+  assert.equal(LEVELS[3].name,'ПРИЗРАЧНЫЙ КОРИДОР');
+  assert.equal(LEVELS[4].name,'СЕРДЦЕ РЕАКТОРА');
+  for(let i of [3,4]){
+    game.level=i;game.startLevel();
+    assert.equal(game.bricks.filter(b=>b.type==='moving').length,2);
+    assert.ok(game.bricks.some(b=>b.type==='prism'));
+    assert.ok(game.bricks.some(b=>b.type==='charge'));
+  }
+});
+
+test('0.7: третий босс промежуточный, четвёртый сектор обычный',()=>{
+  const {game}=createEnvironment();game.launch();game.level=2;game.startLevel();game.launch();
+  game.bricks=[];game.checkStageCompletion();
+  assert.equal(game.boss?.kind,'guardian');
+  finishGuardian(game);
+  assert.equal(game.state,'between');
+  const score=game.score;
+  game.launch();assert.equal(game.state,'ready');assert.equal(game.level,3);
+  assert.ok(game.score>=score);
+  game.launch();assert.equal(game.state,'playing');
+  while(game.bricks.length){
+    const b=game.bricks[game.bricks.length-1];b.lock=0;
+    game.hitBrick(b,game.bricks.length-1);
+  }
+  assert.equal(game.state,'between');
+  assert.equal(game.boss,null);
+  game.launch();assert.equal(game.level,4);
+});
+
+test('0.7: финальный Реактор появляется после всех блоков пятого сектора',()=>{
+  const {game}=createEnvironment();game.launch();game.level=4;game.startLevel();game.launch();
+  const last=game.bricks[game.bricks.length-1];game.bricks=[last];
+  game.hitBrick(last,0);
+  assert.equal(game.state,'playing');
+  assert.equal(game.sectorPhase,'reactor');
+  assert.equal(game.boss?.kind,'reactor');
+  assert.deepEqual(game.boss.nodes.map(n=>n.hp),[2,2,2]);
+  assert.equal(game.lastSectorBonus,0);
+});
+
+test('0.7: три независимых узла Реактора, попадания и реальная финальная победа',()=>{
+  const {game}=createEnvironment();game.launch();game.level=4;game.startLevel();game.launch();
+  game.bricks=[];game.checkStageCompletion();
+  const boss=game.boss,node=boss.nodes[0];
+  const score=game.score;
+  game.ball.x=boss.x+node.offset;
+  game.ball.y=boss.y+boss.h+game.ball.r+.4;
+  game.ball.vx=0;game.ball.vy=-game.levelSpeed();
+  game.moveBall(.004);
+  assert.equal(node.hp,1);assert.equal(boss.hp,5);
+  assert.ok(game.score>score);
+  assert.equal(game.damageReactor(node),false,'shared contact lock');
+  boss.lock=0;
+  // Broken node is no longer damaging; remaining nodes can still be hit.
+  node.hp=0;
+  game.ball.x=boss.x+node.offset;
+  game.ball.y=boss.y+boss.h+game.ball.r+.4;
+  game.ball.vx=0;game.ball.vy=-game.levelSpeed();
+  game.moveBall(.004);
+  assert.equal(boss.hp,5);
+  game.level=4;game.startLevel();game.launch();game.bricks=[];game.checkStageCompletion();
+  finishReactor(game);
+  assert.ok(game.lastSectorBonus>0);
+});
+
+test('0.7: корпус Реактора отражает импульс, если попадание не по узлу',()=>{
+  const {game}=createEnvironment();game.launch();game.level=4;game.startLevel();game.launch();
+  game.bricks=[];game.checkStageCompletion();
+  const boss=game.boss;game.energy=100;game.pulse();
+  assert.ok(game.timers.pulse>0);
+  const hp=boss.hp;
+  game.ball.x=boss.x+65; // 29px from middle, 29px from left node: gap
+  game.ball.y=boss.y+boss.h+game.ball.r+.4;
+  game.ball.vx=0;game.ball.vy=-game.levelSpeed();
+  game.moveBall(.004);
+  assert.equal(boss.hp,hp);
+  assert.ok(game.ball.vy>0,'armor reflects powered ball off weak-point');
+});
+
+test('0.7: Реактор патрулирует, останавливается на паузе, не выходит за границы',()=>{
+  const {game,CFG}=createEnvironment();game.launch();game.level=4;game.startLevel();game.launch();
+  game.bricks=[];game.checkStageCompletion();
+  const b=game.boss,start=b.x;
+  for(const fps of [30,60,120])for(let i=0;i<fps*2;i++){
+    game.update(1/fps);
+    assert.ok(b.x>=b.minX-1e-5&&b.x<=b.maxX+1e-5);
+    assert.ok(b.x>=CFG.left&&b.x+b.w<=CFG.right);
+  }
+  assert.notEqual(b.x,start);
+  game.togglePause();
+  const frozen=[b.x,b.y,b.phaseTime];game.update(.5);
+  assert.deepEqual([b.x,b.y,b.phaseTime],frozen);
+  game.launch();game.update(.02);
+  assert.ok(b.phaseTime>frozen[2]);
+});
+
+test('0.7: мультишар наносит не более одного урона узлу за одно перекрытие',()=>{
+  const {game}=createEnvironment();game.launch();game.level=4;game.startLevel();game.launch();
+  game.bricks=[];game.checkStageCompletion();game.splitBall();
+  const boss=game.boss,node=boss.nodes[1],hp=boss.hp;
+  for(const ball of game.activeBalls()){
+    ball.x=boss.x+node.offset;
+    ball.y=boss.y+boss.h+ball.r+.4;
+    ball.vx=0;ball.vy=-game.levelSpeed();
+    game.moveBall(.004,ball,false);
+  }
+  assert.equal(boss.hp,hp-1);
+  assert.equal(node.hp,1);
+  assert.equal(game.activeBalls().length,3);
+});
+
+test('0.7: рендер финального босса кэширован и не создаёт градиенты каждый кадр',()=>{
+  const {game,gradientCalls}=createEnvironment();
+  assert.ok(game.sprites.reactor);
+  assert.equal(game.sprites.reactor.width,236);
+  assert.equal(game.sprites.reactor.height,124);
+  assert.equal(game.spritePaintCount,7);
+  game.launch();game.level=4;game.startLevel();game.launch();
+  game.bricks=[];game.checkStageCompletion();game.draw();
+  const gradients={...gradientCalls},count=game.spritePaintCount;
+  for(let i=0;i<120;i++)game.draw();
+  assert.equal(game.spritePaintCount,count);
+  assert.deepEqual(gradientCalls,gradients);
+  assert.ok(game.particles.length<=180&&game.waves.length<=24);
+});
