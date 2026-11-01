@@ -47,7 +47,25 @@ with sync_playwright() as pw:
         assert geometry['action']['bottom'] <= geometry['stage']['bottom'] + 1, geometry
         assert geometry['title']['top'] >= geometry['stage']['top'] - 1, geometry
         if width < height:
-            assert geometry['launch']['bottom'] <= height + 1, geometry
+            # A phone must devote most of its width to the actual game, not to outer UI.
+            metrics = page.evaluate('''() => {
+                const box = s => document.querySelector(s).getBoundingClientRect();
+                const canvas = box('#game'), hud = box('.hud'), stage = box('.game-frame');
+                return {
+                    canvasWidth: canvas.width, canvasHeight: canvas.height,
+                    canvasTop: canvas.top, hudTop: hud.top, hudBottom: hud.bottom,
+                    stageTop: stage.top,
+                    controlsBottom: box('.controls').bottom,
+                    footerVisible: getComputedStyle(document.querySelector('.footer')).display !== 'none'
+                };
+            }''')
+            assert metrics['canvasWidth'] >= width * .84, metrics
+            assert abs(metrics['canvasHeight'] / metrics['canvasWidth'] - 1.5) < .03, metrics
+            assert metrics['hudTop'] >= metrics['stageTop'] - 2, metrics
+            assert metrics['hudBottom'] < metrics['canvasTop'] + 65, metrics
+            assert metrics['controlsBottom'] <= height + 1, metrics
+            assert not metrics['footerVisible'], metrics
+            print(f"{label} arena={metrics['canvasWidth']:.1f}x{metrics['canvasHeight']:.1f}")
         else:
             assert page.evaluate('document.querySelector("#game").getBoundingClientRect().width') >= 200
         page.locator('#overlayAction').click()
