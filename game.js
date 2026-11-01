@@ -61,7 +61,7 @@ function safeSaveBest(value){try{localStorage.setItem(CFG.storageKey,String(valu
 class Game {
   constructor(){
     this.frame=0;this.state='menu';this.score=0;this.best=safeLoadBest();this.lives=3;this.level=0;
-    this.energy=0;this.bricks=[];this.drops=[];this.particles=[];this.keys={};this.pointerActive=false;
+    this.energy=0;this.bricks=[];this.drops=[];this.particles=[];this.keys={};this.activePointerId=null;
     this.paddle={x:CFG.width/2,w:CFG.paddleW,y:CFG.paddleY,h:CFG.paddleH};this.targetX=this.paddle.x;
     this.ball={x:CFG.width/2,y:CFG.paddleY-14,vx:0,vy:0,r:CFG.ballRadius,trail:[]};
     this.timers={pulse:0,wide:0,slow:0};this.time=0;this.flash=0;
@@ -219,7 +219,9 @@ class Game {
     if(b.vy>0&&b.y+b.r>=this.paddle.y&&prevY+b.r<=this.paddle.y+5&&Math.abs(b.x-this.paddle.x)<=this.paddle.w/2+b.r){
       b.y=this.paddle.y-b.r-1;
       const relative=clamp((b.x-this.paddle.x)/(this.paddle.w/2),-.94,.94),speed=clamp(this.ballSpeed()*1.017,CFG.initialSpeed,CFG.maxSpeed);
-      const angle=relative*1.11;
+      let angle=relative*1.11;
+      // Centre hits should not lock the ball into a vertical loop.
+      if(Math.abs(angle)<.12)angle=(b.vx<0?-1:1)*.12;
       b.vx=speed*Math.sin(angle);b.vy=-Math.abs(speed*Math.cos(angle));
       beep(275+Math.abs(relative)*180,.055,.023);
     }
@@ -350,8 +352,8 @@ window.addEventListener('keydown',e=>{
   if(e.code==='KeyP'||e.code==='Escape')game.togglePause();
 });
 window.addEventListener('keyup',e=>{game.keys[e.code]=false});
-window.addEventListener('blur',()=>{game.keys={};if(game.state==='playing')game.togglePause()});
-document.addEventListener('visibilitychange',()=>{if(document.hidden&&game.state==='playing')game.togglePause()});
+window.addEventListener('blur',()=>{game.keys={};game.activePointerId=null;if(game.state==='playing')game.togglePause()});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){game.keys={};game.activePointerId=null;if(game.state==='playing')game.togglePause()}});
 let last=performance.now();
 function loop(now){
   const dt=Math.min(.033,Math.max(0,(now-last)/1000));last=now;
