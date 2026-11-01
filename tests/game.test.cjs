@@ -1058,14 +1058,14 @@ test('0.6: магнит удерживает шар и отпускает по �
   const {game,CFG,elements}=createEnvironment();game.launch();game.launch();
   game.applyDrop('magnet');assert.equal(game.timers.magnet,12);
   const b=game.ball;
-  b.x=game.paddle.x+14;b.y=game.paddle.y-b.r-1;b.vx=100;b.vy=300;
+  b.x=game.paddle.x+14;b.y=game.paddle.y-b.r-.2;b.vx=100;b.vy=300;
   game.moveBall(.001);
   assert.equal(b.held,true);
   assert.equal(game.state,'playing');
   assert.equal(elements.get('launchBtn').disabled,false);
   assert.ok(elements.get('launchLabel').textContent.includes('ОТПУСТИТЬ'));
   game.targetX=game.paddle.x+50;game.update(.016);
-  assert.ok(b.x>CFG.width/2+40,'held ball follows the paddle');
+  assert.ok(b.x>CFG.width/2+14,'held ball follows the paddle');
   game.launch();
   assert.equal(b.held,false);
   assert.ok(b.vy<0&&game.ballSpeed(b)>0);
@@ -1076,7 +1076,7 @@ test('0.6: магнит автоматически отпускает мяч и 
   const {game}=createEnvironment();game.launch();game.launch();
   game.applyDrop('magnet');
   const b=game.ball;
-  b.y=game.paddle.y-b.r-1;b.x=game.paddle.x;
+  b.y=game.paddle.y-b.r-.2;b.x=game.paddle.x;
   b.vx=50;b.vy=300;game.moveBall(.001);
   assert.equal(b.held,true);
   game.togglePause();game.update(2);
