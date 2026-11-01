@@ -40,8 +40,8 @@ with sync_playwright() as pw:
         page.add_script_tag(content=js)
         assert page.evaluate('window.__impulseDebug().state') == 'menu'
         assert page.locator('#compactSector').inner_text() == '01/05'
-        assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'gameplay-080-20261101'
-        assert page.locator('.eyebrow').inner_text() == 'АРКАДА • ИГРА 0.8'
+        assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'gameplay-081-20261101'
+        assert page.locator('.eyebrow').inner_text() == 'АРКАДА • ИГРА 0.8.1'
         assert page.evaluate('document.documentElement.scrollWidth') <= width
         geometry = page.evaluate('''() => {
             const box = s => document.querySelector(s).getBoundingClientRect();
@@ -101,7 +101,7 @@ with sync_playwright() as pw:
         assert combo_stats['multiplier'] == 2, combo_stats
         assert combo_stats['gain'] >= 500, combo_stats
         assert combo_stats['timers']['wide'] > 0 and combo_stats['timers']['pulse'] > 0, combo_stats
-        assert combo_stats['marker'] == 'gameplay-080-20261101', combo_stats
+        assert combo_stats['marker'] == 'gameplay-081-20261101', combo_stats
         specials = page.evaluate("""() => {
             game.level=1;game.startLevel();game.launch();
             const blast=game.bricks.find(b=>b.type==='blast');
@@ -246,6 +246,31 @@ with sync_playwright() as pw:
             return {protectedSide,destroyed,bossMoves,projectiles,absorbed};
         }""")
         assert all(tactics.values()), tactics
+        wall_bricks = page.evaluate("""() => {
+            let reachable=true;
+            for(let sector=1;sector<5;sector++){
+                game.level=sector;game.startLevel();
+                for(const brick of game.bricks.filter(b=>b.type==='directional')){
+                    if(game.directionalClearance(brick)<2*CFG.ballRadius+2)reachable=false;
+                }
+            }
+            game.level=2;game.startLevel();game.launch();
+            const block=game.bricks.find(b=>b.type==='directional'&&b.col===5);
+            const wallGap=CFG.right-block.x-block.w;
+            const corrected=block.face==='D'&&wallGap<2*CFG.ballRadius+2;
+            game.bricks=[block];
+            const ball=game.ball;
+            ball.x=block.x+block.w/2;
+            ball.y=block.y+block.h+ball.r+.4;
+            ball.vx=0;ball.vy=-game.levelSpeed();
+            game.moveBall(.004);
+            const completed=block.hp===0&&game.bricks.length===0&&
+                game.sectorPhase==='guardian';
+            game.startNewGame();game.launch();
+            return {reachable,corrected,completed};
+        }""")
+        assert all(wall_bricks.values()), wall_bricks
+
         # Restore gameplay after checking the boss appearance.
         multiball = page.evaluate("""() => {
             game.startNewGame();game.launch();

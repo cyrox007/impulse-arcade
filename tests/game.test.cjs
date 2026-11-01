@@ -197,8 +197,8 @@ test('ограничение положения платформы и захва
 test('статический сайт не зависит от внешних JS/CSS и имеет мета-описание', () => {
   const html = readFileSync(path.join(root,'index.html'),'utf8');
   assert.match(html, /name="description"/);
-  assert.match(html, /src="game\.js\?v=gameplay-080-20261101"/);
-  assert.match(html, /href="style\.css\?v=gameplay-080-20261101"/);
+  assert.match(html, /src="game\.js\?v=gameplay-081-20261101"/);
+  assert.match(html, /href="style\.css\?v=gameplay-081-20261101"/);
   assert.doesNotMatch(html, /<script[^>]*src="https?:\/\//i);
   assert.doesNotMatch(html, /<link[^>]*href="https?:\/\//i);
 });
@@ -1314,18 +1314,23 @@ test('0.8: односторонние блоки неуязвимы с закр�
   assert.equal(b.hp,0);
 });
 
-test('0.8: вертикальные и боковые односторонние блоки отличаются направлениями',()=>{
+test('0.8.1: боковые направленные блоки доступны только с правильной стороны',()=>{
   const {game}=createEnvironment();game.launch();game.level=2;game.startLevel();game.launch();
   const left=game.bricks.find(b=>b.type==='directional'&&b.face==='L');
-  const right=game.bricks.find(b=>b.type==='directional'&&b.face==='R');
-  assert.ok(left&&right);
-  game.bricks=[left,right]; // isolate the target face from neighbours for angle tests
-  const b=game.ball;
-  b.x=left.x+left.w+b.r+.4;b.y=left.y+left.h/2;b.vx=-400;b.vy=0;
-  game.moveBall(.004);assert.equal(left.hp,1);assert.ok(b.vx>0);
-  b.x=left.x-b.r-.4;b.y=left.y+left.h/2;b.vx=400;b.vy=0;
+  assert.ok(left);
+  game.bricks=[left];
+  const ball=game.ball;
+  ball.x=left.x+left.w+ball.r+.4;ball.y=left.y+left.h/2;ball.vx=-400;ball.vy=0;
+  game.moveBall(.004);assert.equal(left.hp,1);assert.ok(ball.vx>0);
+  ball.x=left.x-ball.r-.4;ball.y=left.y+left.h/2;ball.vx=400;ball.vy=0;
   game.moveBall(.004);assert.equal(left.hp,0);
-  b.x=right.x+right.w+b.r+.4;b.y=right.y+right.h/2;b.vx=-400;b.vy=0;
+  // The right-facing brick is placed in the interior (sector 4), not next to the right wall.
+  game.level=3;game.startLevel();game.launch();
+  const right=game.bricks.find(b=>b.type==='directional'&&b.face==='R');
+  assert.ok(right);game.bricks=[right];
+  const rightBall=game.ball;
+  rightBall.x=right.x+right.w+rightBall.r+.4;rightBall.y=right.y+right.h/2;
+  rightBall.vx=-400;rightBall.vy=0;
   game.moveBall(.004);assert.equal(right.hp,0);
 });
 
@@ -1412,4 +1417,85 @@ test('0.8: максимум четыре вражеских выстрела, о
   assert.deepEqual(gradientCalls,baseline);
   assert.equal(game.spritePaintCount,paint);
   assert.ok(game.particles.length<=180&&game.waves.length<=24);
+});
+
+test('0.8.1: крайние стрелки никогда не направлены в непроходимую стену',()=>{
+  const {game,CFG,LEVELS}=createEnvironment();game.launch();
+  const requireSpace=CFG.ballRadius*2+2;
+  for(let sector=0;sector<LEVELS.length;sector++){
+    game.level=sector;game.startLevel();
+    for(const brick of game.bricks.filter(b=>b.type==='directional')){
+      assert.ok(game.directionalClearance(brick)>=requireSpace,
+        'sector '+(sector+1)+' row '+brick.row+' col '+brick.col+' face '+brick.face);
+    }
+  }
+  game.level=2;game.startLevel();
+  const rightmost=game.bricks.find(b=>b.type==='directional'&&b.col===5);
+  assert.ok(rightmost,'replicate screenshot rightmost brick');
+  assert.equal(rightmost.face,'D','right edge must expose its underside');
+  assert.ok(CFG.right-(rightmost.x+rightmost.w)<requireSpace);
+  game.level=4;game.startLevel();
+  const edges=game.bricks.filter(b=>b.type==='directional'&&(b.col===0||b.col===5));
+  assert.equal(edges.length,2);
+  assert.ok(edges.every(b=>b.face==='D'));
+});
+
+test('0.8.1: геометрический предохранитель автоматически разворачивает невозможную грань',()=>{
+  const {game,CFG}=createEnvironment();game.launch();
+  const b={type:'directional',x:CFG.right-64-12,y:210,w:64,h:25,face:'R',row:4,col:5};
+  game.ensureDirectionalClearance(b);
+  assert.equal(b.face,'D');
+  const left={...b,x:CFG.left+12,face:'L',col:0};
+  game.ensureDirectionalClearance(left);
+  assert.equal(left.face,'D');
+  const valid={...b,x:240,face:'R',col:3};
+  game.ensureDirectionalClearance(valid);
+  assert.equal(valid.face,'R');
+});
+
+test('0.8.1: реальные удары уничтожают все направленные блоки во всех пяти секторах',()=>{
+  const {game,CFG,LEVELS}=createEnvironment();game.launch();
+  let checked=0;
+  for(let level=0;level<LEVELS.length;level++){
+    game.level=level;game.startLevel();
+    const coords=game.bricks.filter(b=>b.type==='directional').map(b=>({row:b.row,col:b.col}));
+    for(const {row,col} of coords){
+      game.level=level;game.startLevel();game.launch();
+      const b=game.bricks.find(brick=>brick.type==='directional'&&brick.row===row&&brick.col===col);
+      assert.ok(b);
+      game.bricks=[b];const ball=game.ball,r=ball.r,face=b.face;
+      assert.ok(game.directionalClearance(b)>=2*r+2);
+      const speed=game.levelSpeed(),offset=.45;
+      if(face==='D'){ball.x=b.x+b.w/2;ball.y=b.y+b.h+r+offset;ball.vx=0;ball.vy=-speed;}
+      if(face==='U'){ball.x=b.x+b.w/2;ball.y=b.y-r-offset;ball.vx=0;ball.vy=speed;}
+      if(face==='L'){ball.x=b.x-r-offset;ball.y=b.y+b.h/2;ball.vx=speed;ball.vy=0;}
+      if(face==='R'){ball.x=b.x+b.w+r+offset;ball.y=b.y+b.h/2;ball.vx=-speed;ball.vy=0;}
+      assert.ok(ball.x>=CFG.left+r&&ball.x<=CFG.right-r,'ball fits horizontally');
+      assert.ok(ball.y>=CFG.top+r,'ball fits vertically');
+      game.moveBall(.004);
+      assert.equal(b.hp,0,'sector '+level+' brick '+row+','+col+' should die from '+face);
+      assert.ok(!game.bricks.includes(b));
+      checked++;
+    }
+  }
+  assert.ok(checked>=6,'cover all directional variants across the campaign');
+});
+
+test('0.8.1: скриншот 03/05 — нижний удар по крайнему правому блоку завершает стадию',()=>{
+  const {game}=createEnvironment();game.launch();game.level=2;game.startLevel();game.launch();
+  const right=game.bricks.find(b=>b.type==='directional'&&b.col===5);
+  const armor=game.bricks.find(b=>b.type==='armor'&&b.col===5);
+  assert.ok(right&&armor);assert.equal(right.face,'D');
+  // The remaining group reproduces the screenshot; ordinary brick can be
+  // destroyed first. The directional one must not lock the sector.
+  game.bricks=[armor,right];armor.lock=0;
+  while(armor.hp>0){game.hitBrick(armor,0);armor.lock=0;}
+  assert.equal(game.bricks.length,1);
+  const ball=game.ball;
+  ball.x=right.x+right.w/2;ball.y=right.y+right.h+ball.r+.4;
+  ball.vx=0;ball.vy=-game.levelSpeed();game.moveBall(.004);
+  assert.equal(right.hp,0);
+  assert.equal(game.bricks.length,0);
+  assert.equal(game.sectorPhase,'guardian');
+  assert.equal(game.boss?.kind,'guardian');
 });
