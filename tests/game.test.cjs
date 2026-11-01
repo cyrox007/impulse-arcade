@@ -159,7 +159,7 @@ test('ограничение положения платформы и захва
 test('статический сайт не зависит от внешних JS/CSS и имеет мета-описание', () => {
   const html = readFileSync(path.join(root,'index.html'),'utf8');
   assert.match(html, /name="description"/);
-  assert.match(html, /src="game\.js\?v=sprite-perf-20261101"/);
+  assert.match(html, /src="game\.js\?v=gameplay-03-20261101"/);
   assert.match(html, /href="style\.css\?v=mobile-ui-02-20261101"/);
   assert.doesNotMatch(html, /<script[^>]*src="https?:\/\//i);
   assert.doesNotMatch(html, /<link[^>]*href="https?:\/\//i);
@@ -479,7 +479,7 @@ test('0.3: броня сохраняет поэтапное повреждени
   armor.lock=0;
   game.hitBrick(armor,idx);
   assert.equal(armor.hp,0);
-  assert.equal(game.score-before,70+360); // x2 × 180
+  assert.equal(game.score-before,70+720); // x2 × 180 × sector 2
   assert.equal(game.bestComboInSector,5);
 });
 
