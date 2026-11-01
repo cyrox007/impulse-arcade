@@ -12,7 +12,7 @@ root = Path(__file__).resolve().parents[1]
 html = (root / 'index.html').read_text(encoding='utf-8')
 css = (root / 'style.css').read_text(encoding='utf-8')
 js = (root / 'game.js').read_text(encoding='utf-8')
-html = re.sub(r'<link rel="stylesheet" href="style\\.css(?:\\?[^"]*)?">', '', html)
+html = re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]*)?">', '', html)
 html = html.replace('<script src="game.js" defer></script>', '')
 
 with sync_playwright() as pw:
