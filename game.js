@@ -17,8 +17,8 @@ const CFG = Object.freeze({
 
 const LEVELS = [
   {name:'ПЕРВЫЙ КОНТАКТ', speedScale:1, dropChance:.17, rows:['111111','111111','11CC11','1....1','..11..']},
-  {name:'НЕОНОВЫЙ ДОЖДЬ',speedScale:1.06,dropChance:.18,rows:['212212','121X21','11CC11','121121','.1111.','..22..','......','..M...','......','...M..']},
-  {name:'ЯДРО СТАНЦИИ', speedScale:1.12, dropChance:.19, rows:['222222','2C1XC2','211112','22CC22','121121','1X..11','1....1','......','..M...','......','...M..']}
+  {name:'НЕОНОВЫЙ ДОЖДЬ',speedScale:1.06,dropChance:.18,rows:['212212','121X21','1PCC11','121121','.1111.','..22..','......','..M...','......','...M..']},
+  {name:'ЯДРО СТАНЦИИ', speedScale:1.12, dropChance:.19, rows:['222222','2C1XC2','21E112','22CC22','121121','1X..P1','1....1','......','..M...','......','...M..']}
 ];
 
 const canvas = document.getElementById('game');
@@ -76,9 +76,9 @@ class Game {
     this.energy=0;this.bricks=[];this.drops=[];this.particles=[];this.waves=[];this.boss=null;this.sectorPhase='bricks';this.keys={};this.activePointerId=null;
     this.reducedMotion=Boolean(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     this.paddle={x:CFG.width/2,w:CFG.paddleW,y:CFG.paddleY,h:CFG.paddleH};this.targetX=this.paddle.x;
-    this.ball={x:CFG.width/2,y:CFG.paddleY-14,vx:0,vy:0,r:CFG.ballRadius,trail:[]};
-    this.timers={pulse:0,wide:0,slow:0};this.time=0;this.flash=0;this.shieldCharges=0;
-    this.runStats={seconds:0,hits:0,broken:0,pulses:0,maxCombo:0,barriers:0};
+    this.ball={x:CFG.width/2,y:CFG.paddleY-14,vx:0,vy:0,r:CFG.ballRadius,trail:[]};this.extraBalls=[];
+    this.timers={pulse:0,wide:0,slow:0,magnet:0};this.time=0;this.flash=0;this.shieldCharges=0;
+    this.runStats={seconds:0,hits:0,broken:0,pulses:0,maxCombo:0,barriers:0,splits:0};
     this.comboHits=0;this.comboUntil=0;this.bestComboInSector=0;
     this.lastSectorBonus=0;this.lastSectorBestCombo=0;
     this.stars=Array.from({length:68},(_,i)=>({x:(i*137.37)%CFG.width,y:(i*231.59)%CFG.height,r:i%7===0?1.6:.8,s:(i%4)*.16+.18}));
@@ -110,15 +110,15 @@ class Game {
     return this.comboMultiplier();
   }
   // Enforce a minimum vertical component at extreme angles without changing speed.
-  stabilizeBallAngle(){
-    const b=this.ball,speed=this.ballSpeed(),minY=speed*.20;
+  stabilizeBallAngle(b=this.ball){
+    const speed=this.ballSpeed(b),minY=speed*.20;
     if(speed<1 || Math.abs(b.vy)>=minY)return;
     const directionY=b.vy<0?-1:1,directionX=b.vx<0?-1:1;
     b.vy=directionY*minY;b.vx=directionX*Math.sqrt(speed*speed-minY*minY);
   }
   resetBall(){
     this.ball={x:this.paddle.x,y:this.paddle.y-17,vx:0,vy:0,r:CFG.ballRadius,trail:[]};
-    this.timers.pulse=0;this.timers.slow=0;
+    this.extraBalls=[];this.timers.pulse=0;this.timers.slow=0;this.timers.magnet=0;
   }
   makeBricks(){
     const rows=LEVELS[this.level].rows;
@@ -126,7 +126,7 @@ class Game {
     for(let r=0;r<rows.length;r++)for(let c=0;c<rows[r].length;c++){
       const code=rows[r][c];if(code==='.')continue;
       this.bricks.push({x:CFG.brickStartX+c*(CFG.brickW+CFG.brickGapX),y:CFG.brickStartY+r*(CFG.brickH+CFG.brickGapY),w:CFG.brickW,h:CFG.brickH,
-         hp:code==='2'?2:1,maxHp:code==='2'?2:1,type:code==='C'?'core':code==='2'?'armor':code==='X'?'blast':code==='M'?'moving':'normal',
+         hp:code==='2'?2:1,maxHp:code==='2'?2:1,type:code==='C'?'core':code==='2'?'armor':code==='X'?'blast':code==='M'?'moving':code==='E'?'charge':code==='P'?'prism':'normal',
         row:r,col:c,lock:0,
         anchorX:CFG.brickStartX+c*(CFG.brickW+CFG.brickGapX),
         anchorY:CFG.brickStartY+r*(CFG.brickH+CFG.brickGapY),
@@ -140,9 +140,9 @@ class Game {
     this.boss=null;this.sectorPhase='bricks';this.bricksDirty=true;
   }
   startNewGame(){
-    this.score=0;this.lives=3;this.energy=0;this.level=0;this.timers={pulse:0,wide:0,slow:0};
+    this.score=0;this.lives=3;this.energy=0;this.level=0;this.timers={pulse:0,wide:0,slow:0,magnet:0};
     this.resetCombo();this.bestComboInSector=0;this.lastSectorBonus=0;this.lastSectorBestCombo=0;
-    this.runStats={seconds:0,hits:0,broken:0,pulses:0,maxCombo:0,barriers:0};this.shieldCharges=0;
+    this.runStats={seconds:0,hits:0,broken:0,pulses:0,maxCombo:0,barriers:0,splits:0};this.shieldCharges=0;
     this.paddle.w=CFG.paddleW;this.paddle.x=CFG.width/2;this.targetX=this.paddle.x;
     this.drops=[];this.particles=[];this.waves=[];this.startLevel();
   }
@@ -155,6 +155,7 @@ class Game {
     if(this.state==='menu' || this.state==='lost' || this.state==='won'){this.startNewGame();return}
     if(this.state==='between'){this.level++;this.startLevel();return}
     if(this.state==='paused'){this.resume();return}
+    if(this.state==='playing'){this.releaseHeldBalls();return}
     if(this.state!=='ready')return;
     const speed=this.levelSpeed();
     this.ball.vx=random(-110,110);
@@ -171,16 +172,64 @@ class Game {
   pulse(){
     if(this.state!=='playing'||this.energy<100||this.timers.pulse>0)return;
     this.energy=0;this.timers.pulse=CFG.pulseDuration;this.flash=.36;this.runStats.pulses++;
+    this.releaseHeldBalls();
     this.addParticles(this.ball.x,this.ball.y,28,'#ff85d9');
-    this.setBallSpeed(clamp(this.ballSpeed()*1.13,this.levelSpeed(),CFG.maxSpeed));
+    for(const ball of this.activeBalls())
+      this.setBallSpeed(clamp(this.ballSpeed(ball)*1.13,this.levelSpeed(),CFG.maxSpeed),ball);
     beep(520,.25,.06,'sawtooth');this.updateUI();
   }
   levelSpeed(){return Math.min(CFG.maxSpeed,CFG.initialSpeed*LEVELS[this.level].speedScale)}
-  ballSpeed(){return Math.hypot(this.ball.vx,this.ball.vy)}
-  setBallSpeed(speed){const current=this.ballSpeed();if(current<1)return;this.ball.vx*=speed/current;this.ball.vy*=speed/current}
+  activeBalls(){return [this.ball,...this.extraBalls]}
+  ballSpeed(ball=this.ball){return Math.hypot(ball.vx,ball.vy)}
+  setBallSpeed(speed,ball=this.ball){
+    const current=this.ballSpeed(ball);if(current<1)return;
+    ball.vx*=speed/current;ball.vy*=speed/current;
+  }
+  splitBall(){
+    if(this.state!=='playing'||this.activeBalls().length>=3)return false;
+    this.releaseHeldBalls();
+    const source=this.activeBalls().find(b=>!b.held&&this.ballSpeed(b)>1);
+    if(!source)return false;
+    const speed=clamp(this.ballSpeed(source),this.levelSpeed(),CFG.maxSpeed);
+    const base=Math.atan2(source.vx,Math.abs(source.vy));
+    for(const sign of [-1,1]){
+      if(this.activeBalls().length>=3)break;
+      const angle=clamp(base+sign*.48,-1.06,1.06);
+      this.extraBalls.push({x:clamp(source.x+sign*13,CFG.left+source.r,CFG.right-source.r),
+        y:source.y-5,vx:speed*Math.sin(angle),vy:-speed*Math.cos(angle),
+        r:source.r,trail:[]});
+    }
+    this.runStats.splits++;
+    this.addWave(source.x,source.y,'#ceacff',42,.25,2);
+    beep(930,.1,.045,'triangle');this.updateUI();return true;
+  }
+  releaseHeldBalls(){
+    let count=0;
+    for(const b of this.activeBalls()){
+      if(!b.held)continue;
+      b.held=false;b.holdTime=0;
+      const speed=this.levelSpeed()*(this.timers.slow>0?.75:1);
+      const angle=clamp((b.holdOffset||0)/(this.paddle.w/2)*.75,-.85,.85);
+      b.vx=speed*Math.sin(Math.abs(angle)<.12?.16:angle);
+      b.vy=-Math.sqrt(speed*speed-b.vx*b.vx);count++;
+    }
+    if(count)this.updateUI();
+    return count;
+  }
+  removeBall(ball){
+    if(ball===this.ball){
+      if(this.extraBalls.length)this.ball=this.extraBalls.shift();
+      else {this.dropBall();return}
+    }else{
+      const index=this.extraBalls.indexOf(ball);
+      if(index>=0)this.extraBalls.splice(index,1);
+    }
+    this.addParticles(ball.x,CFG.bottom-12,9,'#c5abff');
+    this.updateUI();
+  }
   dropBall(){
     this.lives--;this.resetCombo();this.addParticles(this.ball.x,CFG.bottom-20,22,'#f9a4d2');beep(170,.25,.07,'triangle');
-    this.drops=[];this.timers.wide=0;this.paddle.w=CFG.paddleW;this.shieldCharges=0;
+    this.drops=[];this.timers.wide=0;this.timers.magnet=0;this.paddle.w=CFG.paddleW;this.shieldCharges=0;this.extraBalls=[];
     if(this.lives<=0){this.end('lost');return}
     this.resetBall();this.setState('ready');this.updateUI();
   }
@@ -262,11 +311,12 @@ class Game {
     if(brick.hp<=0){
       this.bricks.splice(actualIndex,1);
       this.runStats.broken++;
-      const gain=brick.type==='core'?24:brick.type==='armor'?18:brick.type==='blast'?20:12;
-      const points=brick.type==='core'?240:brick.type==='armor'?180:brick.type==='blast'?160:100;
+      const gain=brick.type==='charge'?42:brick.type==='core'?24:brick.type==='armor'?18:brick.type==='blast'?20:12;
+      const points=brick.type==='charge'?220:brick.type==='prism'?200:brick.type==='core'?240:brick.type==='armor'?180:brick.type==='blast'?160:100;
       this.score+=points*(this.level+1)*multiplier;
       this.energy=clamp(this.energy+gain,0,100);
       this.maybeDrop(brick);
+      if(brick.type==='prism')this.splitBall();
       if(brick.type==='blast')this.blastNeighbors(brick);
       beep(brick.type==='core'?620:brick.type==='blast'?740:480,.07,.025,'square');
       this.updateBest();
@@ -294,15 +344,18 @@ class Game {
   }
   maybeDrop(brick){
     if(Math.random()>LEVELS[this.level].dropChance)return;
-    const t=Math.random(),type=t<.43?'wide':t<.79?'slow':t<.95?'shield':'life';
+    const t=Math.random(),type=t<.28?'wide':t<.49?'slow':t<.64?'shield':t<.78?'multi':t<.92?'magnet':'life';
     this.drops.push({x:brick.x+brick.w/2,y:brick.y+brick.h/2,vy:115,type,spin:0});
   }
   applyDrop(type){
     if(type==='wide'){this.timers.wide=CFG.wideDuration;this.paddle.w=145}
     if(type==='slow'){
-      if(this.timers.slow<=0&&this.ballSpeed()>0)this.setBallSpeed(Math.max(195,this.ballSpeed()*.75));
+      if(this.timers.slow<=0)for(const ball of this.activeBalls())
+        if(this.ballSpeed(ball)>0)this.setBallSpeed(Math.max(195,this.ballSpeed(ball)*.75),ball);
       this.timers.slow=CFG.slowDuration;
     }
+    if(type==='magnet')this.timers.magnet=12;
+    if(type==='multi')this.splitBall();
     if(type==='life')this.lives=Math.min(5,this.lives+1);
     if(type==='shield')this.shieldCharges=1;
     this.score+=75;this.updateBest();this.addParticles(this.paddle.x,this.paddle.y,12,'#ffc477');beep(850,.13,.05);
@@ -315,6 +368,8 @@ class Game {
     const colors={
       normal:['#6bcdff','#b8f5ff'],
       moving:['#89ffde','#d6ffed'],
+      charge:['#ffdf80','#fff4c4'],
+      prism:['#ae9aff','#eadfff'],
       armor:['#f0ba6c','#fff0b7'],
       core:['#ef83fc','#ffd5ff'],
       blast:['#ff8d50','#ffe2a1']
@@ -326,7 +381,7 @@ class Game {
       if(brick.type==='armor')this.addWave(x,y,highlight,18,.14,1.6);
       return;
     }
-    if(brick.type==='normal'||brick.type==='moving'){
+    if(brick.type==='normal'||brick.type==='moving'||brick.type==='charge'||brick.type==='prism'){
       // Glass-like fragments and a small cyan pulse.
       this.addWave(x,y,highlight,33,.20,1.5);
     }else if(brick.type==='armor'){
