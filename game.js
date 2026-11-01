@@ -34,11 +34,16 @@ const ui = {
 
 let audioContext = null;
 let soundEnabled = false;
+let lastBeepAt=-Infinity;
 function beep(frequency, duration=.06, volume=.035, type='sine') {
   if (!soundEnabled) return;
   try {
     if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
     if (audioContext.state === 'suspended') audioContext.resume().catch(()=>{});
+    // Avoid bursts of overlapping oscillators on mobile after rapid collisions.
+    const now=audioContext.currentTime;
+    if(now-lastBeepAt<.05)return;
+    lastBeepAt=now;
     const osc=audioContext.createOscillator(), gain=audioContext.createGain();
     osc.type=type;osc.frequency.setValueAtTime(frequency,audioContext.currentTime);
     gain.gain.setValueAtTime(volume,audioContext.currentTime);
@@ -176,7 +181,12 @@ class Game {
     this.score+=75;this.updateBest();this.addParticles(this.paddle.x,this.paddle.y,12,'#ffc477');beep(850,.13,.05);
     this.updateUI();
   }
-  addParticles(x,y,n,color){for(let i=0;i<n;i++)this.particles.push({x,y,vx:random(-170,170),vy:random(-180,160),life:random(.3,.75),maxLife:.75,color,r:random(1.1,3.4)})}
+  addParticles(x,y,n,color){
+    // Keep short visual bursts bounded, even during rapid multi-brick hits.
+    const max=180, count=Math.min(n,max);
+    if(this.particles.length+count>max)this.particles.splice(0,this.particles.length+count-max);
+    for(let i=0;i<count;i++)this.particles.push({x,y,vx:random(-170,170),vy:random(-180,160),life:random(.3,.75),maxLife:.75,color,r:random(1.1,3.4)});
+  }
   update(dt){
     // A pause freezes both simulation and particles; only resumed play advances time.
     if(this.state==='paused')return;
@@ -424,10 +434,23 @@ window.addEventListener('blur',()=>{game.keys={};game.activePointerId=null;if(ga
 document.addEventListener('visibilitychange',()=>{if(document.hidden){game.keys={};game.activePointerId=null;if(game.state==='playing')game.togglePause()}});
 let last=performance.now();
 function loop(now){
-  const dt=Math.min(.033,Math.max(0,(now-last)/1000));last=now;
+  const frameMs=Math.max(0,now-last);last=now;
+  const dt=Math.min(.033,frameMs/1000);
+  const metrics=game.performance;
+  if(frameMs>500){metrics.frames=0;metrics.seconds=0;metrics.worst=0;}
+  else{
+    metrics.frames++;
+    metrics.seconds+=frameMs/1000;
+    metrics.worst=Math.max(metrics.worst,frameMs);
+    if(metrics.seconds>=1){
+      metrics.fps=Math.round(metrics.frames/metrics.seconds);
+      metrics.maxFrameMs=Math.round(metrics.worst);
+      metrics.frames=0;metrics.seconds=0;metrics.worst=0;
+    }
+  }
   game.update(dt);game.draw();
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
 // Expose a read-only diagnostic snapshot for automated smoke tests, no gameplay cheats.
-window.__impulseDebug=()=>({state:game.state,score:game.score,level:game.level,lives:game.lives,bricks:game.bricks.length,energy:game.energy});
+window.__impulseDebug=()=>({state:game.state,score:game.score,level:game.level,lives:game.lives,bricks:game.bricks.length,energy:game.energy,fps:game.performance.fps,maxFrameMs:game.performance.maxFrameMs});
