@@ -26,8 +26,22 @@
 npm run check
 ```
 
-Проверяются синтаксис и логика игры. Это не заменяет ручные испытания на Android и других браузерах.
+Проверяются синтаксис и логика игры: **11 автоматических тестов**. Браузерная проверка выполняется отдельно через Python Playwright:
+
+```sh
+python -m pip install playwright
+python -m playwright install chromium
+python tests/browser_smoke.py
+```
+
+В CI выполняются обе проверки (Node и Chromium). Протестированы desktop и 4 эмулированных мобильных viewport, но физический Android не проверялся.
 
 **План:** стабильная физика и управление → новые уровни/бонусы → баланс и визуальные эффекты → проверки на ПК/Android → релиз 1.0.
 
 Учебный архив [The-Game](https://github.com/cyrox007/The-Game) не изменяется. Сценарии и приватный лор других проектов сюда не входят.
+
+## Публикация
+
+Подготовлен workflow `.github/workflows/pages.yml` для публикации из `main` через GitHub Actions. Если сайт ещё не опубликован, в **Settings → Pages → Build and deployment → Source** нужно выбрать **GitHub Actions**. Статус и ручная проверка ссылки учитываются в [Issue #3](https://github.com/cyrox007/impulse-arcade/issues/3).
+
+Ручные испытания на реальном Android учитываются в [Issue #2](https://github.com/cyrox007/impulse-arcade/issues/2).
