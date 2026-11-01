@@ -17,8 +17,8 @@ const CFG = Object.freeze({
 
 const LEVELS = [
   {name:'ПЕРВЫЙ КОНТАКТ', speedScale:1, dropChance:.17, rows:['111111','111111','11CC11','1....1','..11..']},
-  {name:'НЕОНОВЫЙ ДОЖДЬ',speedScale:1.06,dropChance:.18,rows:['212212','121X21','11CC11','121121','.1111.','.M22M.']},
-  {name:'ЯДРО СТАНЦИИ', speedScale:1.12, dropChance:.19, rows:['222222','2C1XC2','211112','22CC22','121121','1X..11','1.M..1']}
+  {name:'НЕОНОВЫЙ ДОЖДЬ',speedScale:1.06,dropChance:.18,rows:['212212','121X21','11CC11','121121','.1111.','..22..','......','..M...','......','...M..']},
+  {name:'ЯДРО СТАНЦИИ', speedScale:1.12, dropChance:.19, rows:['222222','2C1XC2','211112','22CC22','121121','1X..11','1....1','......','..M...','......','...M..']}
 ];
 
 const canvas = document.getElementById('game');
@@ -89,7 +89,9 @@ class Game {
       paddleNormal:this.makePaddleSprite(CFG.paddleW,false),
       paddleWide:this.makePaddleSprite(145,true),
       ballNormal:this.makeBallSprite(false),
-      ballPulse:this.makeBallSprite(true)
+      ballPulse:this.makeBallSprite(true),
+      guardianOpen:this.makeGuardianSprite(false),
+      guardianShield:this.makeGuardianSprite(true)
     };
     this.profileEnabled=Boolean(window.location && /(?:\?|&)fps=1(?:&|$)/.test(window.location.search||''));
     this.performance={fps:0,maxFrameMs:0,avgUpdateMs:0,avgDrawMs:0,
@@ -124,12 +126,16 @@ class Game {
     for(let r=0;r<rows.length;r++)for(let c=0;c<rows[r].length;c++){
       const code=rows[r][c];if(code==='.')continue;
       this.bricks.push({x:CFG.brickStartX+c*(CFG.brickW+CFG.brickGapX),y:CFG.brickStartY+r*(CFG.brickH+CFG.brickGapY),w:CFG.brickW,h:CFG.brickH,
-        hp:code==='2'?2:1,maxHp:code==='2'?2:1,type:code==='C'?'core':code==='2'?'armor':code==='X'?'blast':code==='M'?'moving':'normal',
+         hp:code==='2'?2:1,maxHp:code==='2'?2:1,type:code==='C'?'core':code==='2'?'armor':code==='X'?'blast':code==='M'?'moving':'normal',
         row:r,col:c,lock:0,
         anchorX:CFG.brickStartX+c*(CFG.brickW+CFG.brickGapX),
-        minX:CFG.brickStartX+c*(CFG.brickW+CFG.brickGapX)-4,
-        maxX:CFG.brickStartX+c*(CFG.brickW+CFG.brickGapX)+4,
-        vx:code==='M'?(c%2?-36:36):0});
+        anchorY:CFG.brickStartY+r*(CFG.brickH+CFG.brickGapY),
+        path:code==='M'?(this.level===2&&r===10?'vertical':this.level===2?'sine':'horizontal'):null,
+        minX:CFG.brickStartX,maxX:CFG.right-CFG.brickW-12,
+        minY:CFG.brickStartY+r*(CFG.brickH+CFG.brickGapY)-10,
+        maxY:CFG.brickStartY+r*(CFG.brickH+CFG.brickGapY)+86,
+        vx:code==='M'?(r%2?-110:120):0,
+        vy:code==='M'?95:0});
     }
     this.boss=null;this.sectorPhase='bricks';this.bricksDirty=true;
   }
@@ -185,9 +191,9 @@ class Game {
   beginGuardian(){
     if(this.sectorPhase!=='bricks'||this.level!==LEVELS.length-1)return;
     this.sectorPhase='guardian';
-    this.boss={x:CFG.width/2-60,y:141,w:120,h:42,hp:6,maxHp:6,lock:0,phaseTime:0};
-    this.addWave(CFG.width/2,162,'#f6acff',70,.4,3);
-    this.addParticles(CFG.width/2,162,24,'#df96ff');
+    this.boss={x:CFG.width/2-80,y:138,w:160,h:66,hp:6,maxHp:6,lock:0,phaseTime:0,hitFlash:0};
+    this.addWave(CFG.width/2,170,'#f6acff',90,.4,3);
+    this.addParticles(CFG.width/2,170,28,'#df96ff');
     beep(280,.17,.04,'sawtooth');this.updateUI();
   }
   guardianVulnerable(){
@@ -201,25 +207,39 @@ class Game {
   damageGuardian(){
     const boss=this.boss;
     if(!boss||this.state!=='playing'||boss.lock>0||!this.guardianVulnerable())return false;
-    boss.lock=.17;boss.hp--;this.runStats.hits++;
+    boss.lock=.17;boss.hitFlash=.22;boss.hp--;this.runStats.hits++;
     this.score+=250*(this.level+1);this.energy=clamp(this.energy+12,0,100);
     this.addParticles(boss.x+boss.w/2,boss.y+boss.h/2,12,'#f6b3ff',{shard:true,life:.35});
     this.addWave(boss.x+boss.w/2,boss.y+boss.h/2,'#ffb5ec',48,.22,2);
     beep(420+boss.hp*40,.07,.035,'triangle');
     if(boss.hp<=0){
       this.runStats.broken++;this.score+=1500;this.boss=null;this.sectorPhase='finished';
-      this.addParticles(CFG.width/2,160,48,'#ffcf94',{shard:true,life:.5});
-      this.addWave(CFG.width/2,160,'#ffd09a',115,.46,3,'burst');
+      this.addParticles(CFG.width/2,boss.y+boss.h/2,60,'#ffcf94',{shard:true,life:.65});
+      this.addWave(CFG.width/2,boss.y+boss.h/2,'#ffd09a',110,.46,3,'burst');
+      this.addWave(CFG.width/2,boss.y+boss.h/2,'#f5a8ff',148,.56,2);
+      this.flash=Math.max(this.flash,this.reducedMotion?.06:.27);
       this.updateBest();this.completeLevel();
     }else{this.updateBest();this.updateUI()}
     return true;
   }
   updateMovingBricks(dt){
+    // Long unobstructed patrol lanes: the brick moves hundreds of pixels,
+    // not a jittering +/-4px. Reflection preserves the overshoot for smoothness.
     for(const brick of this.bricks){
       if(brick.type!=='moving')continue;
-      brick.x+=brick.vx*dt;
-      if(brick.x<brick.minX){brick.x=brick.minX;brick.vx=Math.abs(brick.vx)}
-      if(brick.x>brick.maxX){brick.x=brick.maxX;brick.vx=-Math.abs(brick.vx)}
+      if(brick.path==='vertical'){
+        brick.y+=brick.vy*dt;
+        if(brick.y>brick.maxY){brick.y=brick.maxY-(brick.y-brick.maxY);brick.vy=-Math.abs(brick.vy)}
+        else if(brick.y<brick.minY){brick.y=brick.minY+(brick.minY-brick.y);brick.vy=Math.abs(brick.vy)}
+      }else{
+        brick.x+=brick.vx*dt;
+        if(brick.x>brick.maxX){brick.x=brick.maxX-(brick.x-brick.maxX);brick.vx=-Math.abs(brick.vx)}
+        else if(brick.x<brick.minX){brick.x=brick.minX+(brick.minX-brick.x);brick.vx=Math.abs(brick.vx)}
+        if(brick.path==='sine'){
+          const progress=(brick.x-brick.minX)/(brick.maxX-brick.minX);
+          brick.y=brick.anchorY+10*Math.sin(progress*Math.PI*2);
+        }
+      }
     }
   }
   completeLevel(){
@@ -370,6 +390,8 @@ class Game {
     if(this.state==='playing'&&this.boss){
       this.boss.phaseTime+=dt;
       this.boss.lock=Math.max(0,this.boss.lock-dt);
+      this.boss.hitFlash=Math.max(0,this.boss.hitFlash-dt);
+      this.boss.y=138+(this.reducedMotion?0:4*Math.sin(this.boss.phaseTime*2.3));
     }
     if(this.state!=='ready'&&this.state!=='playing')return;
     const move=(this.keys.ArrowRight||this.keys.KeyD?1:0)-(this.keys.ArrowLeft||this.keys.KeyA?1:0);
@@ -598,24 +620,103 @@ class Game {
     if(brick.type==='core'){target.fillStyle='#fff2ff';target.beginPath();target.moveTo(brick.x+brick.w/2,brick.y+5);target.lineTo(brick.x+brick.w/2+8,brick.y+brick.h/2);target.lineTo(brick.x+brick.w/2,brick.y+brick.h-5);target.lineTo(brick.x+brick.w/2-8,brick.y+brick.h/2);target.fill()}
   }}
   drawMovingBricks(){
-    // A few flat-color moving targets are cheap and do not invalidate brickLayer.
     for(const brick of this.bricks){
       if(brick.type!=='moving')continue;
-      roundRect(brick.x,brick.y,brick.w,brick.h,5,'#23565f','#89ffde');
-      ctx.fillStyle='#dcfff6';ctx.font='bold 15px system-ui';ctx.textAlign='center';
-      ctx.fillText('⇄',brick.x+brick.w/2,brick.y+18);
+      // Guide rails + a directional tail make the long patrol immediately readable.
+      ctx.strokeStyle='#68eacb45';ctx.lineWidth=1;ctx.beginPath();
+      if(brick.path==='vertical'){
+        const rail=brick.x+brick.w/2;
+        ctx.moveTo(rail,brick.minY);ctx.lineTo(rail,brick.maxY+brick.h);
+      }else{
+        const rail=brick.anchorY+brick.h/2;
+        ctx.moveTo(brick.minX,rail);ctx.lineTo(brick.maxX+brick.w,rail);
+      }
+      ctx.stroke();
+      ctx.globalAlpha=.22;ctx.fillStyle='#4df6d3';
+      if(brick.path==='vertical')ctx.fillRect(brick.x+7,brick.y-Math.sign(brick.vy)*12,brick.w-14,brick.h);
+      else ctx.fillRect(brick.x-Math.sign(brick.vx)*13,brick.y+4,brick.w,brick.h-8);
+      ctx.globalAlpha=1;
+      roundRect(brick.x,brick.y,brick.w,brick.h,5,'#1b4f62','#75ffe4');
+      ctx.fillStyle='#aaf9e9';ctx.fillRect(brick.x+5,brick.y+3,brick.w-10,2);
+      ctx.fillStyle='#ecfff9';ctx.font='bold 16px system-ui';ctx.textAlign='center';
+      ctx.fillText(brick.path==='vertical'?'↕':'⇄',brick.x+brick.w/2,brick.y+19);
     }
+    ctx.lineWidth=1;ctx.globalAlpha=1;
+  }
+  paintGuardianSprite(target,shielded){
+    const cx=112,cy=67;
+    const poly=(points,fill,stroke)=>{
+      target.beginPath();target.moveTo(points[0][0],points[0][1]);
+      for(let i=1;i<points.length;i++)target.lineTo(points[i][0],points[i][1]);
+      target.closePath();target.fillStyle=fill;target.fill();
+      if(stroke){target.strokeStyle=stroke;target.lineWidth=2;target.stroke()}
+    };
+    // Large silhouette, mechanical fins and a halo are painted ONCE per phase.
+    const halo=target.createRadialGradient(cx,cy,6,cx,cy,73);
+    halo.addColorStop(0,shielded?'#58dcff8c':'#ff70deaa');
+    halo.addColorStop(1,'#00000000');
+    target.fillStyle=halo;target.beginPath();target.arc(cx,cy,73,0,Math.PI*2);target.fill();
+    poly([[12,58],[34,29],[65,24],[81,45],[76,83],[42,106],[18,88]],'#182d50','#66a6d7');
+    poly([[212,58],[190,29],[159,24],[143,45],[148,83],[182,106],[206,88]],'#182d50','#66a6d7');
+    poly([[26,60],[58,41],[76,61],[58,85]],'#315476','#8dd5f3');
+    poly([[198,60],[166,41],[148,61],[166,85]],'#315476','#8dd5f3');
+    poly([[70,27],[90,13],[134,13],[154,27],[159,99],[136,116],[88,116],[65,99]],'#132440','#8bbcf0');
+    poly([[84,37],[112,27],[140,37],[150,66],[140,95],[112,107],[84,95],[74,66]],shielded?'#1d536d':'#592e72',shielded?'#9aecff':'#ffb3ef');
+    const core=target.createRadialGradient(cx-7,cy-10,3,cx,cy,30);
+    core.addColorStop(0,'#ffffff');
+    core.addColorStop(.36,shielded?'#91ecff':'#ffe1ff');
+    core.addColorStop(1,shielded?'#337aa5':'#a835b8');
+    target.fillStyle=core;target.beginPath();target.arc(cx,cy,shielded?18:26,0,Math.PI*2);target.fill();
+    target.strokeStyle=shielded?'#9ef4ff':'#ffe2ff';target.lineWidth=3;
+    target.beginPath();target.arc(cx,cy,shielded?25:31,0,Math.PI*2);target.stroke();
+    if(shielded){
+      // Inward-closing armor shutters visually cover the vulnerable core.
+      poly([[69,43],[99,49],[103,86],[69,96],[55,76]],'#477b98','#b5f3ff');
+      poly([[155,43],[125,49],[121,86],[155,96],[169,76]],'#477b98','#b5f3ff');
+      poly([[94,59],[112,46],[130,59],[130,77],[112,91],[94,77]],'#234d70','#c4f5ff');
+    }else{
+      poly([[53,34],[77,42],[81,90],[54,100],[43,73]],'#76476f','#ffbad9');
+      poly([[171,34],[147,42],[143,90],[170,100],[181,73]],'#76476f','#ffbad9');
+      target.fillStyle='#fff8ff';target.beginPath();target.arc(cx,cy,9,0,Math.PI*2);target.fill();
+    }
+    // Small emitters on the wings establish scale and direction.
+    for(const x of [37,187]){
+      target.fillStyle=shielded?'#95ecff':'#fa9bdf';
+      target.beginPath();target.arc(x,68,5,0,Math.PI*2);target.fill();
+    }
+  }
+  makeGuardianSprite(shielded){
+    const layer=createLayer(224,136);
+    if(!layer)return null;
+    this.paintGuardianSprite(layer.ctx,shielded);
+    this.spritePaintCount++;
+    return layer.canvas;
   }
   drawGuardian(){
     const boss=this.boss;if(!boss)return;
-    const vulnerable=this.guardianVulnerable();
-    roundRect(boss.x,boss.y,boss.w,boss.h,8,vulnerable?'#793c90':'#304264',
-      vulnerable?'#ffa9f4':'#83bff5');
-    ctx.fillStyle='#fff0ff';ctx.font='bold 14px system-ui';ctx.textAlign='center';
-    ctx.fillText(vulnerable?'СТРАЖ ЯДРА':'ЗАЩИТА',boss.x+boss.w/2,boss.y+25);
-    ctx.fillStyle='#172238';ctx.fillRect(boss.x,boss.y-13,boss.w,5);
-    ctx.fillStyle=vulnerable?'#ff8be3':'#80bded';
-    ctx.fillRect(boss.x,boss.y-13,boss.w*boss.hp/boss.maxHp,5);
+    const shielded=!this.guardianVulnerable(),cx=boss.x+boss.w/2,cy=boss.y+boss.h/2;
+    const sprite=shielded?this.sprites.guardianShield:this.sprites.guardianOpen;
+    if(sprite)ctx.drawImage(sprite,cx-112,cy-67);
+    else this.paintGuardianSprite(ctx,shielded);
+    // A low-cost rotating arc gives life to the cached artwork.
+    if(!this.reducedMotion){
+      const angle=this.time*(shielded?1.8:-1.3);
+      ctx.strokeStyle=shielded?'#8feaff':'#ffb9fa';ctx.lineWidth=2;
+      for(let i=0;i<3;i++){ctx.beginPath();ctx.arc(cx,cy,47,angle+i*Math.PI*2/3,angle+i*Math.PI*2/3+.85);ctx.stroke()}
+    }
+    if(boss.hitFlash>0){
+      ctx.globalAlpha=Math.min(.65,boss.hitFlash*3);ctx.fillStyle='#ffffff';
+      ctx.beginPath();ctx.arc(cx,cy,35,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;
+    }
+    // Six discrete HP cells, not a generic rectangle that resembles a brick.
+    ctx.textAlign='center';ctx.font='bold 12px system-ui';
+    ctx.fillStyle=shielded?'#94ddff':'#ffb5e9';
+    ctx.fillText(shielded?'СТРАЖ ЯДРА · ЩИТ':'СТРАЖ ЯДРА · ОТКРЫТ',cx,boss.y-42);
+    for(let i=0;i<boss.maxHp;i++){
+      const cell=18,gap=4,x=cx-(boss.maxHp*(cell+gap)-gap)/2+i*(cell+gap);
+      roundRect(x,boss.y-36,cell,6,2,i<boss.hp?(shielded?'#76cbed':'#f49ed8'):'#32415c',null);
+    }
+    ctx.globalAlpha=1;ctx.lineWidth=1;
   }
   drawDrops(){for(const d of this.drops){
     const color=d.type==='wide'?'#6bf9bc':d.type==='slow'?'#81c6ff':d.type==='shield'?'#88ffd6':'#ff83a9';
