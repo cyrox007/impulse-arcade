@@ -18,9 +18,9 @@ const CFG = Object.freeze({
 const LEVELS = [
   {name:'ПЕРВЫЙ КОНТАКТ', speedScale:1, dropChance:.17, rows:['111111','111111','11CC11','1....1','..11..']},
   {name:'НЕОНОВЫЙ ДОЖДЬ',speedScale:1.06,dropChance:.18,rows:['212212','121X21','1PCC11','121121','U1111D','..22..','..M.M.']},
-  {name:'ЯДРО СТАНЦИИ', speedScale:1.12, dropChance:.19, rows:['222222','2C1XC2','21E112','22CC22','121121','1X..P1','1.M.M1']},
-  {name:'ПРИЗРАЧНЫЙ КОРИДОР',speedScale:1.16,dropChance:.20,rows:['2P12P2','11X111','C21E2C','212212','1P11P1','..22..','.M..M.']},
-  {name:'СЕРДЦЕ РЕАКТОРА',speedScale:1.20,dropChance:.21,rows:['C2E2C2','221X22','1PCCP1','2X22X2','121121','..EE..','.M..M.']}
+  {name:'ЯДРО СТАНЦИИ', speedScale:1.12, dropChance:.19, rows:['222222','2C1XC2','21E112','22CC22','12L12R','1X..P1','1.M.M1']},
+  {name:'ПРИЗРАЧНЫЙ КОРИДОР',speedScale:1.16,dropChance:.20,rows:['2P12P2','11X111','C21E2C','212212','1P11P1','..UD..','.M..M.']},
+  {name:'СЕРДЦЕ РЕАКТОРА',speedScale:1.20,dropChance:.21,rows:['C2E2C2','221X22','1PCCP1','2X22X2','L2112R','..EE..','.M..M.']}
 ];
 
 const canvas = document.getElementById('game');
@@ -300,7 +300,7 @@ class Game {
     const node=boss.nodes.find(n=>n.hp>0&&
       (b.x-(boss.x+n.offset))**2+(b.y-(boss.y+boss.h-10))**2<=(b.r+18)**2);
     if(node&&prevY-b.r>=boss.y+boss.h-2&&b.vy<0&&boss.lock<=0)this.damageReactor(node);
-    if(this.state==='playing'&&(!node||this.timers.pulse<=0))
+    if(this.state==='playing'&&(!node||prevY-b.r<boss.y+boss.h-2||b.vy>=0||this.timers.pulse<=0))
       this.reflectBallFromRect(boss,prevX,prevY,b);
     return true;
   }
@@ -388,7 +388,7 @@ class Game {
     distances.sort((a,b)=>a[1]-b[1]);return distances[0][0];
   }
   completeLevel(){
-    this.lastSectorBestCombo=this.bestComboInSector;
+    this.enemyShots=[];this.lastSectorBestCombo=this.bestComboInSector;
     this.lastSectorBonus=100*(this.level+1)*Math.max(0,this.lives);
     this.score+=this.lastSectorBonus;
     this.resetCombo();
@@ -677,7 +677,7 @@ class Game {
         const vulnerable=this.guardianVulnerable();
         if(guardian.lock<=0&&vulnerable&&prevY-b.r>=guardian.y+guardian.h-2&&b.vy<0)this.damageGuardian();
         // A shielded guardian always reflects. Pulse pierces only when exposed.
-        if(this.state==='playing'&&(!vulnerable||this.timers.pulse<=0))
+        if(this.state==='playing'&&(!vulnerable||prevY-b.r<guardian.y+guardian.h-2||b.vy>=0||this.timers.pulse<=0))
           this.reflectBallFromRect(guardian,prevX,prevY,b);
       }
     }
@@ -810,6 +810,7 @@ class Game {
     let c1,c2,stroke;
     if(brick.type==='charge'){c1='#f9e68d';c2='#ab7041';stroke='#fff2ab'}
     else if(brick.type==='prism'){c1='#ba9cff';c2='#6651be';stroke='#e4d2ff'}
+    else if(brick.type==='directional'){c1='#85d2ae';c2='#275e71';stroke='#c9ffdc'}
     else if(brick.type==='core'){c1='#ff7abb';c2='#a541a5';stroke='#ffb7dd'}
     else if(brick.type==='armor'){c1='#e4ba79';c2='#825e6d';stroke='#fff0a5'}
     else if(brick.type==='blast'){c1='#ffc07a';c2='#cc5a5c';stroke='#ffe2ab'}
@@ -823,33 +824,47 @@ class Game {
       target.fillStyle='#fffefa';target.font='bold 17px system-ui';target.textAlign='center';
       target.fillText(brick.type==='charge'?'⚡':'✧',brick.x+brick.w/2,brick.y+18);
     }
+    if(brick.type==='directional'){
+      // Arrow shows the only unarmored face; draw on the cached brick layer.
+      target.strokeStyle='#e8ffae';target.lineWidth=3;target.beginPath();
+      const midX=brick.x+brick.w/2,midY=brick.y+brick.h/2;
+      if(brick.face==='U'){target.moveTo(midX-10,brick.y+4);target.lineTo(midX+10,brick.y+4)}
+      if(brick.face==='D'){target.moveTo(midX-10,brick.y+brick.h-4);target.lineTo(midX+10,brick.y+brick.h-4)}
+      if(brick.face==='L'){target.moveTo(brick.x+4,midY-8);target.lineTo(brick.x+4,midY+8)}
+      if(brick.face==='R'){target.moveTo(brick.x+brick.w-4,midY-8);target.lineTo(brick.x+brick.w-4,midY+8)}
+      target.stroke();target.lineWidth=1;
+      target.fillStyle='#e3ffeb';target.font='bold 16px system-ui';target.textAlign='center';
+      target.fillText({U:'↑',D:'↓',L:'←',R:'→'}[brick.face],midX,brick.y+18);
+    }
     if(brick.type==='armor'){target.fillStyle='#19213c98';target.font='bold 14px system-ui';target.textAlign='center';target.fillText(brick.hp===2?'◆':'◇',brick.x+brick.w/2,brick.y+18)}
     if(brick.type==='blast'){target.fillStyle='#fff6dd';target.font='bold 17px system-ui';target.textAlign='center';target.fillText('✶',brick.x+brick.w/2,brick.y+18)}
     if(brick.type==='core'){target.fillStyle='#fff2ff';target.beginPath();target.moveTo(brick.x+brick.w/2,brick.y+5);target.lineTo(brick.x+brick.w/2+8,brick.y+brick.h/2);target.lineTo(brick.x+brick.w/2,brick.y+brick.h-5);target.lineTo(brick.x+brick.w/2-8,brick.y+brick.h/2);target.fill()}
   }}
   drawMovingBricks(){
+    // Same silhouette as ordinary bricks; no movement rails or special lanes.
     for(const brick of this.bricks){
       if(brick.type!=='moving')continue;
-      // Guide rails + a directional tail make the long patrol immediately readable.
-      ctx.strokeStyle='#68eacb45';ctx.lineWidth=1;ctx.beginPath();
-      if(brick.path==='vertical'){
-        const rail=brick.x+brick.w/2;
-        ctx.moveTo(rail,brick.minY);ctx.lineTo(rail,brick.maxY+brick.h);
-      }else{
-        const rail=brick.anchorY+brick.h/2;
-        ctx.moveTo(brick.minX,rail);ctx.lineTo(brick.maxX+brick.w,rail);
-      }
-      ctx.stroke();
-      ctx.globalAlpha=.22;ctx.fillStyle='#4df6d3';
-      if(brick.path==='vertical')ctx.fillRect(brick.x+7,brick.y-Math.sign(brick.vy)*12,brick.w-14,brick.h);
-      else ctx.fillRect(brick.x-Math.sign(brick.vx)*13,brick.y+4,brick.w,brick.h-8);
-      ctx.globalAlpha=1;
-      roundRect(brick.x,brick.y,brick.w,brick.h,5,'#1b4f62','#75ffe4');
-      ctx.fillStyle='#aaf9e9';ctx.fillRect(brick.x+5,brick.y+3,brick.w-10,2);
-      ctx.fillStyle='#ecfff9';ctx.font='bold 16px system-ui';ctx.textAlign='center';
-      ctx.fillText(brick.path==='vertical'?'↕':'⇄',brick.x+brick.w/2,brick.y+19);
+      roundRect(brick.x,brick.y,brick.w,brick.h,5,'#337f9d','#84d5f4');
+      ctx.fillStyle='#b9eaff';ctx.fillRect(brick.x+7,brick.y+4,brick.w-14,2);
+      ctx.fillStyle='#e7fbff';ctx.font='bold 13px system-ui';ctx.textAlign='center';
+      ctx.fillText('◇',brick.x+brick.w/2,brick.y+18);
     }
-    ctx.lineWidth=1;ctx.globalAlpha=1;
+  }
+  drawEnemyShots(){
+    for(const shot of this.enemyShots){
+      ctx.strokeStyle='#ffb17c';ctx.lineWidth=2;
+      ctx.beginPath();ctx.moveTo(shot.x-shot.vx*.035,shot.y-12);ctx.lineTo(shot.x,shot.y);ctx.stroke();
+      ctx.fillStyle='#ffe2ad';ctx.beginPath();ctx.arc(shot.x,shot.y,shot.r,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#ff7f81';ctx.beginPath();ctx.arc(shot.x,shot.y,shot.r*.48,0,Math.PI*2);ctx.fill();
+    }
+    // An orange blink on the boss telegraphs its next projectile.
+    if(this.boss&&this.boss.shotClock> (this.boss.kind==='reactor'?2.4:3.0)){
+      ctx.globalAlpha=.5+.4*Math.sin(this.time*19);
+      ctx.strokeStyle='#ffbe7a';ctx.lineWidth=2;
+      ctx.beginPath();ctx.arc(this.boss.x+this.boss.w/2,
+        this.boss.y+this.boss.h+7,11,0,Math.PI*2);ctx.stroke();
+      ctx.globalAlpha=1;ctx.lineWidth=1;
+    }
   }
   paintGuardianSprite(target,shielded){
     const cx=112,cy=67;
@@ -950,7 +965,7 @@ class Game {
       }
     }
     ctx.textAlign='center';ctx.font='bold 12px system-ui';ctx.fillStyle='#ffd0ac';
-    ctx.fillText('РЕАКТОР · УЗЛЫ '+boss.nodes.filter(n=>n.hp>0).length+'/3',boss.x+boss.w/2,boss.y-43);
+    ctx.fillText('РЕАКТОР · СНИЗУ · '+boss.nodes.filter(n=>n.hp>0).length+'/3',boss.x+boss.w/2,boss.y-43);
     for(let i=0;i<boss.nodes.length;i++){
       const x=boss.x+boss.w/2-52+i*39;
       roundRect(x,boss.y-37,31,7,2,boss.nodes[i].hp===2?'#ffd08d':boss.nodes[i].hp===1?'#ff7c94':'#344252',null);
@@ -981,7 +996,7 @@ class Game {
     // Six discrete HP cells, not a generic rectangle that resembles a brick.
     ctx.textAlign='center';ctx.font='bold 12px system-ui';
     ctx.fillStyle=shielded?'#94ddff':'#ffb5e9';
-    ctx.fillText(shielded?'СТРАЖ ЯДРА · ЩИТ':'СТРАЖ ЯДРА · ОТКРЫТ',cx,boss.y-42);
+    ctx.fillText(shielded?'СТРАЖ ЯДРА · ЩИТ':'СТРАЖ · УДАР СНИЗУ',cx,boss.y-42);
     for(let i=0;i<boss.maxHp;i++){
       const cell=18,gap=4,x=cx-(boss.maxHp*(cell+gap)-gap)/2+i*(cell+gap);
       roundRect(x,boss.y-36,cell,6,2,i<boss.hp?(shielded?'#76cbed':'#f49ed8'):'#32415c',null);
@@ -1161,4 +1176,4 @@ function loop(now){
 }
 requestAnimationFrame(loop);
 // Expose a read-only diagnostic snapshot for automated smoke tests, no gameplay cheats.
-window.__impulseDebug=()=>({state:game.state,score:game.score,level:game.level,lives:game.lives,bricks:game.bricks.length,energy:game.energy,combo:game.comboHits,fps:game.performance.fps,maxFrameMs:game.performance.maxFrameMs,avgUpdateMs:game.performance.avgUpdateMs,avgDrawMs:game.performance.avgDrawMs,spritePaintCount:game.spritePaintCount,balls:game.activeBalls().length,held:game.activeBalls().filter(b=>b.held).length,moving:game.bricks.filter(b=>b.type==='moving').length,phase:game.sectorPhase,bossHP:game.boss?.hp??0,shield:game.shieldCharges,particles:game.particles.length,waves:game.waves.length,stats:{...game.runStats}});
+window.__impulseDebug=()=>({state:game.state,score:game.score,level:game.level,lives:game.lives,bricks:game.bricks.length,energy:game.energy,combo:game.comboHits,fps:game.performance.fps,maxFrameMs:game.performance.maxFrameMs,avgUpdateMs:game.performance.avgUpdateMs,avgDrawMs:game.performance.avgDrawMs,spritePaintCount:game.spritePaintCount,shots:game.enemyShots.length,balls:game.activeBalls().length,held:game.activeBalls().filter(b=>b.held).length,moving:game.bricks.filter(b=>b.type==='moving').length,phase:game.sectorPhase,bossHP:game.boss?.hp??0,shield:game.shieldCharges,particles:game.particles.length,waves:game.waves.length,stats:{...game.runStats}});
