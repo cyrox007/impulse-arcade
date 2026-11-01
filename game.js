@@ -231,11 +231,25 @@ class Game {
       if((b.x-closeX)**2+(b.y-closeY)**2>b.r**2)continue;
       const pierced=this.timers.pulse>0;
       if(this.hitBrick(brick,i)&&!pierced){
-        if(prevY+b.r<=brick.y){b.y=brick.y-b.r-1;b.vy=-Math.abs(b.vy)}
-        else if(prevY-b.r>=brick.y+brick.h){b.y=brick.y+brick.h+b.r+1;b.vy=Math.abs(b.vy)}
-        else if(prevX<brick.x){b.x=brick.x-b.r-1;b.vx=-Math.abs(b.vx)}
-        else if(prevX>brick.x+brick.w){b.x=brick.x+brick.w+b.r+1;b.vx=Math.abs(b.vx)}
-        else b.vy=-b.vy;
+        const fromTop=prevY+b.r<=brick.y;
+        const fromBottom=prevY-b.r>=brick.y+brick.h;
+        const fromLeft=prevX+b.r<=brick.x;
+        const fromRight=prevX-b.r>=brick.x+brick.w;
+        // Use the previous ball edge, not the centre, to resolve brick sides.
+        const dx=Math.min(b.x+b.r-brick.x,brick.x+brick.w-b.x+b.r);
+        const dy=Math.min(b.y+b.r-brick.y,brick.y+brick.h-b.y+b.r);
+        if((fromLeft||fromRight)&&(!fromTop&&!fromBottom||dx<dy)){
+          if(fromLeft){b.x=brick.x-b.r-1;b.vx=-Math.abs(b.vx)}
+          else{b.x=brick.x+brick.w+b.r+1;b.vx=Math.abs(b.vx)}
+        }else if(fromTop){b.y=brick.y-b.r-1;b.vy=-Math.abs(b.vy)}
+        else if(fromBottom){b.y=brick.y+brick.h+b.r+1;b.vy=Math.abs(b.vy)}
+        else if(dx<dy){
+          if(b.x<brick.x+brick.w/2){b.x=brick.x-b.r-1;b.vx=-Math.abs(b.vx)}
+          else{b.x=brick.x+brick.w+b.r+1;b.vx=Math.abs(b.vx)}
+        }else{
+          if(b.y<brick.y+brick.h/2){b.y=brick.y-b.r-1;b.vy=-Math.abs(b.vy)}
+          else{b.y=brick.y+brick.h+b.r+1;b.vy=Math.abs(b.vy)}
+        }
         break;
       }
       if(this.state!=='playing')break;
