@@ -79,6 +79,8 @@ class Game {
     this.timers={pulse:0,wide:0,slow:0};this.time=0;this.flash=0;
     this.comboHits=0;this.comboUntil=0;this.bestComboInSector=0;
     this.lastSectorBonus=0;this.lastSectorBestCombo=0;
+    this.levelBricksTotal=0;
+    this.stats={activeSeconds:0,hits:0,bricks:0,pulses:0,bestCombo:0};
     this.stars=Array.from({length:68},(_,i)=>({x:(i*137.37)%CFG.width,y:(i*231.59)%CFG.height,r:i%7===0?1.6:.8,s:(i%4)*.16+.18}));
     this.backdropLayer=createLayer();this.brickLayer=createLayer();this.bricksDirty=true;this.brickPaintCount=0;
     // A few tiny, transparent sprites replace gradients/shadows rebuilt every frame.
@@ -97,11 +99,24 @@ class Game {
   }
   setState(state){this.state=state;this.updateUI()}
   resetCombo(){this.comboHits=0;this.comboUntil=0}
+  elapsedLabel(){
+    const total=Math.floor(this.stats.activeSeconds);
+    return `${Math.floor(total/60)}:${String(total%60).padStart(2,'0')}`;
+  }
+  resultStats(){
+    return `<div class="run-stats" aria-label="Статистика забега">
+      <span>ВРЕМЯ<strong>${this.elapsedLabel()}</strong></span>
+      <span>БЛОКОВ<strong>${this.stats.bricks}</strong></span>
+      <span>СЕРИЯ<strong>${this.stats.bestCombo}</strong></span>
+    </div><div class="run-stats-more">УДАРЫ: ${this.stats.hits} · ИМПУЛЬСЫ: ${this.stats.pulses}</div>`;
+  }
   comboMultiplier(){return Math.min(4,1+Math.floor(Math.max(0,this.comboHits-1)/3))}
   registerHit(){
     if(this.time>this.comboUntil)this.resetCombo();
     this.comboHits++;this.comboUntil=this.time+CFG.comboWindow;
     this.bestComboInSector=Math.max(this.bestComboInSector,this.comboHits);
+    this.stats.hits++;
+    this.stats.bestCombo=Math.max(this.stats.bestCombo,this.comboHits);
     return this.comboMultiplier();
   }
   // Enforce a minimum vertical component at extreme angles without changing speed.
@@ -123,11 +138,13 @@ class Game {
       this.bricks.push({x:CFG.brickStartX+c*(CFG.brickW+CFG.brickGapX),y:CFG.brickStartY+r*(CFG.brickH+CFG.brickGapY),w:CFG.brickW,h:CFG.brickH,
         hp:code==='2'?2:1,maxHp:code==='2'?2:1,type:code==='C'?'core':code==='2'?'armor':'normal',row:r,lock:0});
     }
+    this.levelBricksTotal=this.bricks.length;
     this.bricksDirty=true;
   }
   startNewGame(){
     this.score=0;this.lives=3;this.energy=0;this.level=0;this.timers={pulse:0,wide:0,slow:0};
     this.resetCombo();this.bestComboInSector=0;this.lastSectorBonus=0;this.lastSectorBestCombo=0;
+    this.stats={activeSeconds:0,hits:0,bricks:0,pulses:0,bestCombo:0};
     this.paddle.w=CFG.paddleW;this.paddle.x=CFG.width/2;this.targetX=this.paddle.x;
     this.drops=[];this.particles=[];this.startLevel();
   }
@@ -156,6 +173,7 @@ class Game {
   pulse(){
     if(this.state!=='playing'||this.energy<100||this.timers.pulse>0)return;
     this.energy=0;this.timers.pulse=CFG.pulseDuration;this.flash=.36;
+    this.stats.pulses++;
     this.addParticles(this.ball.x,this.ball.y,28,'#ff85d9');
     this.setBallSpeed(clamp(this.ballSpeed()*1.13,this.levelSpeed(),CFG.maxSpeed));
     beep(520,.25,.06,'sawtooth');this.updateUI();
@@ -189,7 +207,7 @@ class Game {
     const multiplier=this.registerHit();
     this.addParticles(this.ball.x,this.ball.y,7,brick.type==='core'?'#ff8bd9':brick.type==='armor'?'#ffe2a3':'#69e4ff');
     if(brick.hp<=0){
-      this.bricks.splice(index,1);
+      this.bricks.splice(index,1);this.stats.bricks++;
       const gain=brick.type==='core'?24:brick.type==='armor'?18:12;
       this.score+=(brick.type==='core'?240:brick.type==='armor'?180:100)*(this.level+1)*multiplier;
       this.energy=clamp(this.energy+gain,0,100);
@@ -225,6 +243,7 @@ class Game {
     // A pause freezes both simulation and particles; only resumed play advances time.
     if(this.state==='paused')return;
     this.time+=dt;this.frame++;
+    if(this.state==='playing')this.stats.activeSeconds+=dt;
     if(this.comboHits>0&&this.time>this.comboUntil)this.resetCombo();
     if(this.flash>0)this.flash=Math.max(0,this.flash-dt);
     for(let i=this.particles.length-1;i>=0;i--){const p=this.particles[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=125*dt;p.life-=dt;if(p.life<=0)this.particles.splice(i,1)}
@@ -325,14 +344,15 @@ class Game {
       won:{icon:'★',kicker:'МИССИЯ ВЫПОЛНЕНА',title:'ТРИ СЕКТОРА ПРОЙДЕНЫ',text:`Финальный счёт: ${this.score.toLocaleString('ru-RU')}. Бонус финального сектора: +${this.lastSectorBonus}. Твой рекорд: ${this.best.toLocaleString('ru-RU')}.`,action:'СЫГРАТЬ СНОВА',small:'Это только первая версия игры. Новые механики ещё впереди.'},
       lost:{icon:'✕',kicker:'ПОПЫТКА ЗАВЕРШЕНА',title:'ИГРА ОКОНЧЕНА',text:`Ты набрал ${this.score.toLocaleString('ru-RU')} очков. Попробуй ещё раз!`,action:'НОВАЯ ПОПЫТКА',small:'Старайся поймать бонусы: зелёный расширяет платформу, синий замедляет шар.'}
     }[kind];
-    return `<div class="overlay-icon" aria-hidden="true">${common.icon}</div><div class="overlay-kicker">${common.kicker}</div><h2>${common.title}</h2><p>${common.text}</p><button type="button" class="overlay-action" id="overlayAction">${common.action}</button><div class="overlay-small">${common.small}</div>`;
+    const results=kind==='won'||kind==='lost'?this.resultStats():'';
+    return `<div class="overlay-icon" aria-hidden="true">${common.icon}</div><div class="overlay-kicker">${common.kicker}</div><h2>${common.title}</h2><p>${common.text}</p>${results}<button type="button" class="overlay-action" id="overlayAction">${common.action}</button><div class="overlay-small">${common.small}</div>`;
   }
   showOverlay(kind){ui.overlay.innerHTML=this.overlayContent(kind);ui.overlay.hidden=false;ui.overlay.querySelector('#overlayAction').addEventListener('click',()=>this.launch(),{once:true})}
   hideOverlay(){ui.overlay.hidden=true;ui.overlay.innerHTML=''}
   updateUI(){
     ui.score.textContent=String(this.score).padStart(6,'0');ui.best.textContent=String(this.best).padStart(6,'0');
     ui.lives.textContent='♥ '.repeat(Math.max(0,this.lives)).trim()||'—';
-    ui.stage.textContent=`СЕКТОР ${String(this.level+1).padStart(2,'0')} / ${String(LEVELS.length).padStart(2,'0')}`;
+    ui.stage.textContent=`СЕКТОР ${String(this.level+1).padStart(2,'0')} / ${String(LEVELS.length).padStart(2,'0')}${this.levelBricksTotal?' · '+this.bricks.length+' БЛОКОВ':''}`;
     ui.compactSector.textContent=`${String(this.level+1).padStart(2,'0')}/${String(LEVELS.length).padStart(2,'0')}`;
     ui.charge.style.width=`${this.energy}%`;ui.chargeText.textContent=`${Math.floor(this.energy)}%`;
     ui.chargeBar.setAttribute('aria-valuenow',String(Math.floor(this.energy)));
@@ -379,6 +399,11 @@ class Game {
   drawGameplayStatus(){
     if(!['playing','ready','paused'].includes(this.state))return;
     ctx.textAlign='left';ctx.font='bold 12px system-ui';
+    if(this.levelBricksTotal){
+      ctx.fillStyle='#a2cde3bb';ctx.textAlign='right';
+      ctx.fillText(`ОСТАЛОСЬ ${this.bricks.length}`,CFG.right-9,77);
+      ctx.textAlign='left';
+    }
     if(this.comboHits>=2){
       ctx.fillStyle='#ffcf80';
       ctx.fillText(`СЕРИЯ ${this.comboHits}  ×${this.comboMultiplier()}`,CFG.left+9,77);
@@ -565,4 +590,4 @@ function loop(now){
 }
 requestAnimationFrame(loop);
 // Expose a read-only diagnostic snapshot for automated smoke tests, no gameplay cheats.
-window.__impulseDebug=()=>({state:game.state,score:game.score,level:game.level,lives:game.lives,bricks:game.bricks.length,energy:game.energy,combo:game.comboHits,fps:game.performance.fps,maxFrameMs:game.performance.maxFrameMs,avgUpdateMs:game.performance.avgUpdateMs,avgDrawMs:game.performance.avgDrawMs,spritePaintCount:game.spritePaintCount});
+window.__impulseDebug=()=>({state:game.state,score:game.score,level:game.level,lives:game.lives,bricks:game.bricks.length,stats:{...game.stats},energy:game.energy,combo:game.comboHits,fps:game.performance.fps,maxFrameMs:game.performance.maxFrameMs,avgUpdateMs:game.performance.avgUpdateMs,avgDrawMs:game.performance.avgDrawMs,spritePaintCount:game.spritePaintCount});
