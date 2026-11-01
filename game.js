@@ -73,7 +73,8 @@ function safeSaveBest(value){try{localStorage.setItem(CFG.storageKey,String(valu
 class Game {
   constructor(){
     this.frame=0;this.state='menu';this.score=0;this.best=safeLoadBest();this.lives=3;this.level=0;
-    this.energy=0;this.bricks=[];this.drops=[];this.particles=[];this.keys={};this.activePointerId=null;
+    this.energy=0;this.bricks=[];this.drops=[];this.particles=[];this.waves=[];this.keys={};this.activePointerId=null;
+    this.reducedMotion=Boolean(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     this.paddle={x:CFG.width/2,w:CFG.paddleW,y:CFG.paddleY,h:CFG.paddleH};this.targetX=this.paddle.x;
     this.ball={x:CFG.width/2,y:CFG.paddleY-14,vx:0,vy:0,r:CFG.ballRadius,trail:[]};
     this.timers={pulse:0,wide:0,slow:0};this.time=0;this.flash=0;this.shieldCharges=0;
@@ -132,10 +133,10 @@ class Game {
     this.resetCombo();this.bestComboInSector=0;this.lastSectorBonus=0;this.lastSectorBestCombo=0;
     this.runStats={seconds:0,hits:0,broken:0,pulses:0,maxCombo:0,barriers:0};this.shieldCharges=0;
     this.paddle.w=CFG.paddleW;this.paddle.x=CFG.width/2;this.targetX=this.paddle.x;
-    this.drops=[];this.particles=[];this.startLevel();
+    this.drops=[];this.particles=[];this.waves=[];this.startLevel();
   }
   startLevel(){
-    this.makeBricks();this.drops=[];this.paddle.w=CFG.paddleW;this.timers.wide=0;this.shieldCharges=0;
+    this.makeBricks();this.drops=[];this.waves=[];this.paddle.w=CFG.paddleW;this.timers.wide=0;this.shieldCharges=0;
     this.resetCombo();this.bestComboInSector=0;
     this.resetBall();this.setState('ready');this.hideOverlay();this.flash=0;this.updateUI();
   }
@@ -192,7 +193,7 @@ class Game {
     if(actualIndex<0||brick.lock>0)return false;
     brick.lock=.11;brick.hp--;this.bricksDirty=true;this.runStats.hits++;
     const multiplier=this.registerHit();
-    this.addParticles(this.ball.x,this.ball.y,7,brick.type==='core'?'#ff8bd9':brick.type==='armor'?'#ffe2a3':brick.type==='blast'?'#ffad72':'#69e4ff');
+    this.blockEffect(brick,brick.hp<=0);
     if(brick.hp<=0){
       this.bricks.splice(actualIndex,1);
       this.runStats.broken++;
@@ -217,14 +218,13 @@ class Game {
       if(index<0)continue;
       target.hp=Math.max(0,target.hp-1);
       target.lock=0;this.bricksDirty=true;
-      this.addParticles(target.x+target.w/2,target.y+target.h/2,5,'#ffb775');
+      this.blockEffect(target,target.hp===0,true);
       if(target.hp===0){
         this.bricks.splice(index,1);this.runStats.broken++;
         this.score+=60*(this.level+1);this.energy=clamp(this.energy+6,0,100);
       }
     }
-    this.flash=Math.max(this.flash,.16);
-    this.addParticles(source.x+source.w/2,source.y+source.h/2,20,'#ffb775');
+    this.flash=Math.max(this.flash,this.reducedMotion?.07:.16);
   }
   maybeDrop(brick){
     if(Math.random()>LEVELS[this.level].dropChance)return;
@@ -242,11 +242,74 @@ class Game {
     this.score+=75;this.updateBest();this.addParticles(this.paddle.x,this.paddle.y,12,'#ffc477');beep(850,.13,.05);
     this.updateUI();
   }
-  addParticles(x,y,n,color){
-    // Keep short visual bursts bounded, even during rapid multi-brick hits.
-    const max=180, count=Math.min(n,max);
+  // Every brick family has its own lightweight destruction language.
+  // Visual effects never change scoring, collisions or the brick cache.
+  blockEffect(brick,destroyed,secondary=false){
+    const x=brick.x+brick.w/2,y=brick.y+brick.h/2;
+    const colors={
+      normal:['#6bcdff','#b8f5ff'],
+      armor:['#f0ba6c','#fff0b7'],
+      core:['#ef83fc','#ffd5ff'],
+      blast:['#ff8d50','#ffe2a1']
+    };
+    const [color,highlight]=colors[brick.type]||colors.normal;
+    const amount=destroyed?(brick.type==='blast'?14:brick.type==='armor'?11:9):brick.type==='armor'?5:3;
+    this.addParticles(x,y,secondary?Math.min(amount,6):amount,color,{shard:destroyed,life:destroyed?.44:.27});
+    if(!destroyed){
+      if(brick.type==='armor')this.addWave(x,y,highlight,18,.14,1.6);
+      return;
+    }
+    if(brick.type==='normal'){
+      // Glass-like fragments and a small cyan pulse.
+      this.addWave(x,y,highlight,33,.20,1.5);
+    }else if(brick.type==='armor'){
+      // Heavy amber chips and a tight metallic shock ring.
+      this.addWave(x,y,highlight,41,.26,2.3);
+    }else if(brick.type==='core'){
+      // Two staggered energy ripples.
+      this.addWave(x,y,color,49,.32,2.6);
+      this.addWave(x,y,highlight,28,.20,1.5);
+    }else if(brick.type==='blast'){
+      // Short radial explosion. Never recursively triggers gameplay damage.
+      this.addWave(x,y,color,64,.31,3.5,'burst');
+      this.addWave(x,y,highlight,95,.35,1.8);
+      this.flash=Math.max(this.flash,this.reducedMotion?.05:.12);
+    }
+  }
+  addWave(x,y,color,radius,duration,width=2,kind='ring'){
+    if(this.reducedMotion)return;
+    if(this.waves.length>=24)this.waves.splice(0,this.waves.length-23);
+    this.waves.push({x,y,color,radius,duration,life:duration,width,kind});
+  }
+  addParticles(x,y,n,color,{shard=false,life=0}={}){
+    // Bounded across combo bursts, explosions and simultaneous brick removals.
+    const max=180,count=Math.min(this.reducedMotion?Math.ceil(n*.33):n,max);
     if(this.particles.length+count>max)this.particles.splice(0,this.particles.length+count-max);
-    for(let i=0;i<count;i++)this.particles.push({x,y,vx:random(-170,170),vy:random(-180,160),life:random(.3,.75),maxLife:.75,color,r:random(1.1,3.4)});
+    for(let i=0;i<count;i++){
+      const duration=life||random(.3,.75);
+      this.particles.push({x,y,vx:random(-170,170),vy:random(-180,160),
+        life:duration,maxLife:duration,color,r:random(shard?2.4:1.1,shard?5:3.4),shard});
+    }
+  }
+  drawWaves(){
+    for(const wave of this.waves){
+      const progress=1-wave.life/wave.duration;
+      const radius=4+wave.radius*progress;
+      ctx.globalAlpha=(1-progress)*.8;
+      ctx.strokeStyle=wave.color;ctx.lineWidth=wave.width*(1-progress*.55);
+      ctx.beginPath();ctx.arc(wave.x,wave.y,radius,0,Math.PI*2);ctx.stroke();
+      if(wave.kind==='burst'){
+        // Four crisp directional light streaks, no per-frame gradients.
+        const start=radius*.55,end=radius+12*(1-progress);
+        ctx.beginPath();
+        ctx.moveTo(wave.x-start,wave.y);ctx.lineTo(wave.x-end,wave.y);
+        ctx.moveTo(wave.x+start,wave.y);ctx.lineTo(wave.x+end,wave.y);
+        ctx.moveTo(wave.x,wave.y-start);ctx.lineTo(wave.x,wave.y-end);
+        ctx.moveTo(wave.x,wave.y+start);ctx.lineTo(wave.x,wave.y+end);
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha=1;ctx.lineWidth=1;
   }
   update(dt){
     // A pause freezes both simulation and particles; only resumed play advances time.
@@ -256,6 +319,7 @@ class Game {
     if(this.comboHits>0&&this.time>this.comboUntil)this.resetCombo();
     if(this.flash>0)this.flash=Math.max(0,this.flash-dt);
     for(let i=this.particles.length-1;i>=0;i--){const p=this.particles[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=125*dt;p.life-=dt;if(p.life<=0)this.particles.splice(i,1)}
+    for(let i=this.waves.length-1;i>=0;i--){const wave=this.waves[i];wave.life-=dt;if(wave.life<=0)this.waves.splice(i,1)}
     if(this.state!=='ready'&&this.state!=='playing')return;
     const move=(this.keys.ArrowRight||this.keys.KeyD?1:0)-(this.keys.ArrowLeft||this.keys.KeyA?1:0);
     if(move!==0)this.targetX+=move*CFG.paddleSpeed*dt;
@@ -405,7 +469,7 @@ class Game {
       this.drawBricks(ctx);
       this.bricksDirty=false;
     }
-    this.drawDrops();this.drawParticles();this.drawShield();this.drawPaddle();this.drawBall();this.drawGameplayStatus();
+    this.drawDrops();this.drawParticles();this.drawWaves();this.drawShield();this.drawPaddle();this.drawBall();this.drawGameplayStatus();
     if(this.flash>0){ctx.fillStyle=`rgba(252,114,201,${Math.min(.2,this.flash*.4)})`;ctx.fillRect(0,0,w,h)}
     // Opt-in on-device FPS overlay: ?fps=1 (no clutter during normal play).
     if(this.profileEnabled){
@@ -477,7 +541,17 @@ class Game {
     ctx.beginPath();ctx.moveTo(CFG.left+14,CFG.bottom-14);ctx.lineTo(CFG.right-14,CFG.bottom-14);ctx.stroke();
     ctx.globalAlpha=1;ctx.lineWidth=1;
   }
-  drawParticles(){for(const p of this.particles){ctx.globalAlpha=clamp(p.life/.6,0,1);ctx.fillStyle=p.color;ctx.fillRect(p.x,p.y,p.r,p.r)}ctx.globalAlpha=1}
+  drawParticles(){
+    for(const p of this.particles){
+      ctx.globalAlpha=clamp(p.life/p.maxLife,0,1);ctx.fillStyle=p.color;
+      if(p.shard){
+        const tail=p.r*.55;
+        ctx.beginPath();ctx.moveTo(p.x,p.y-p.r);ctx.lineTo(p.x+tail,p.y+tail);
+        ctx.lineTo(p.x-tail,p.y+tail);ctx.closePath();ctx.fill();
+      }else ctx.fillRect(p.x,p.y,p.r,p.r);
+    }
+    ctx.globalAlpha=1;
+  }
 
   paintPaddle(target,w,wide,left,y){
     target.shadowColor=wide?'#5cf9bf':'#4adff5';target.shadowBlur=19;
@@ -617,4 +691,4 @@ function loop(now){
 }
 requestAnimationFrame(loop);
 // Expose a read-only diagnostic snapshot for automated smoke tests, no gameplay cheats.
-window.__impulseDebug=()=>({state:game.state,score:game.score,level:game.level,lives:game.lives,bricks:game.bricks.length,energy:game.energy,combo:game.comboHits,fps:game.performance.fps,maxFrameMs:game.performance.maxFrameMs,avgUpdateMs:game.performance.avgUpdateMs,avgDrawMs:game.performance.avgDrawMs,spritePaintCount:game.spritePaintCount,shield:game.shieldCharges,stats:{...game.runStats}});
+window.__impulseDebug=()=>({state:game.state,score:game.score,level:game.level,lives:game.lives,bricks:game.bricks.length,energy:game.energy,combo:game.comboHits,fps:game.performance.fps,maxFrameMs:game.performance.maxFrameMs,avgUpdateMs:game.performance.avgUpdateMs,avgDrawMs:game.performance.avgDrawMs,spritePaintCount:game.spritePaintCount,shield:game.shieldCharges,particles:game.particles.length,waves:game.waves.length,stats:{...game.runStats}});
