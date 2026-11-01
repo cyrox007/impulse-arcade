@@ -219,6 +219,7 @@ test('0.2: все три сектора проходимы через реаль
   const sectorScores=[];
   for(let sector=0;sector<LEVELS.length;sector++) {
     assert.equal(game.level,sector);
+    assert.equal(elements.get('compactSector').textContent,`${String(sector+1).padStart(2,'0')}/03`);
     game.launch();
     assert.equal(game.state,'playing');
     assert.ok(Math.abs(game.ballSpeed()-game.levelSpeed())<.001);
@@ -263,6 +264,7 @@ test('0.2: все три сектора проходимы через реаль
   game.launch();
   assert.equal(game.state,'ready');
   assert.equal(game.level,0);
+  assert.equal(elements.get('compactSector').textContent,'01/03');
   assert.equal(game.lives,3);
   assert.equal(game.score,0);
   assert.equal(game.best,best);
