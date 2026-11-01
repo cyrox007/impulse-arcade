@@ -42,6 +42,6 @@ python tests/browser_smoke.py
 
 ## Публикация
 
-Подготовлен workflow `.github/workflows/pages.yml` для публикации из `main` через GitHub Actions. Если сайт ещё не опубликован, в **Settings → Pages → Build and deployment → Source** нужно выбрать **GitHub Actions**. Статус и ручная проверка ссылки учитываются в [Issue #3](https://github.com/cyrox007/impulse-arcade/issues/3).
+Для тестового сайта владелец включил **GitHub Pages → Deploy from a branch → `develop`**. Для размещения из корня репозитория нужна папка **`/(root)`**. Предполагаемый адрес: https://cyrox007.github.io/impulse-arcade/ (фактическая доступность пока не подтверждена). Альтернативный workflow `.github/workflows/pages.yml` не запускается автоматически и пригодится только после сознательного переключения Pages на **GitHub Actions**. Статус проверки сайта — в [Issue #3](https://github.com/cyrox007/impulse-arcade/issues/3).
 
 Ручные испытания на реальном Android учитываются в [Issue #2](https://github.com/cyrox007/impulse-arcade/issues/2).
