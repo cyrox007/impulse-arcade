@@ -74,6 +74,25 @@ function finishGuardian(game){
     if(++hits>10)assert.fail('guardian stuck');
   }
   assert.equal(hits,6);
+  assert.equal(game.state,'between');
+  assert.equal(game.level,2);
+  assert.equal(game.sectorPhase,'finished');
+}
+function finishReactor(game){
+  assert.equal(game.sectorPhase,'reactor','reactor phase after final bricks');
+  assert.equal(game.boss?.kind,'reactor');
+  let hits=0;
+  while(game.boss){
+    const boss=game.boss,node=boss.nodes.find(n=>n.hp>0);
+    assert.ok(node,'reactor must have a remaining node');
+    boss.lock=0;
+    game.ball.x=boss.x+node.offset;
+    game.ball.y=boss.y+boss.h+game.ball.r+.4;
+    game.ball.vx=0;game.ball.vy=-game.levelSpeed();
+    game.moveBall(.004);
+    if(++hits>9)assert.fail('reactor stuck');
+  }
+  assert.equal(hits,6);
   assert.equal(game.state,'won');
   assert.equal(game.sectorPhase,'finished');
 }
@@ -81,7 +100,7 @@ function finishGuardian(game){
 test('стартовая сцена → готовность → запуск шара', () => {
   const {game,CFG,LEVELS} = createEnvironment();
   assert.equal(game.state, 'menu');
-  assert.equal(LEVELS.length, 3);
+  assert.equal(LEVELS.length, 5);
   game.launch();
   assert.equal(game.state, 'ready');
   assert.equal(game.bricks.length, LEVELS[0].rows.join('').replaceAll('.', '').length);
@@ -131,13 +150,14 @@ test('повреждение кирпича, счёт, рекорд и пере�
       brick.lock=0;game.hitBrick(brick,game.bricks.length-1);
     }
     assert.equal(game.bricks.length,0);
+    if (level===2)finishGuardian(game);
     if (level<LEVELS.length-1) {
       assert.equal(game.state,'between');
       game.launch();
       assert.equal(game.state,'ready');
       assert.equal(game.level,level+1);
       game.launch();
-    } else finishGuardian(game);
+    } else finishReactor(game);
   }
   assert.ok(game.best>0);
   assert.equal(Number(storage.get(CFG.storageKey)), game.best);
@@ -177,8 +197,8 @@ test('ограничение положения платформы и захва
 test('статический сайт не зависит от внешних JS/CSS и имеет мета-описание', () => {
   const html = readFileSync(path.join(root,'index.html'),'utf8');
   assert.match(html, /name="description"/);
-  assert.match(html, /src="game\.js\?v=gameplay-060-20261101"/);
-  assert.match(html, /href="style\.css\?v=gameplay-060-20261101"/);
+  assert.match(html, /src="game\.js\?v=gameplay-070-20261101"/);
+  assert.match(html, /href="style\.css\?v=gameplay-070-20261101"/);
   assert.doesNotMatch(html, /<script[^>]*src="https?:\/\//i);
   assert.doesNotMatch(html, /<link[^>]*href="https?:\/\//i);
 });
@@ -245,7 +265,7 @@ test('0.2: все три сектора проходимы через реаль
   const sectorScores=[];
   for(let sector=0;sector<LEVELS.length;sector++) {
     assert.equal(game.level,sector);
-    assert.equal(elements.get('compactSector').textContent,`${String(sector+1).padStart(2,'0')}/03`);
+    assert.equal(elements.get('compactSector').textContent,`${String(sector+1).padStart(2,'0')}/05`);
     game.launch();
     assert.equal(game.state,'playing');
     assert.ok(Math.abs(game.ballSpeed()-game.levelSpeed())<.001);
@@ -264,6 +284,7 @@ test('0.2: все три сектора проходимы через реаль
     }
     assert.equal(game.bricks.length,0);
     sectorScores.push(game.score);
+    if(sector===2)finishGuardian(game);
     if(sector<LEVELS.length-1){
       assert.equal(game.state,'between');
       assert.equal(elements.get('overlay').hidden,false);
@@ -276,9 +297,9 @@ test('0.2: все три сектора проходимы через реаль
       assert.equal(game.energy,lastEnergy);
       assert.equal(game.ballSpeed(),0);
     }else{
-      finishGuardian(game);
+      finishReactor(game);
       assert.equal(elements.get('overlay').hidden,false);
-      assert.ok(elements.get('overlay').innerHTML.includes('ТРИ СЕКТОРА И СТРАЖ ПРОЙДЕНЫ'));
+      assert.ok(elements.get('overlay').innerHTML.includes('ПЯТЬ СЕКТОРОВ И ДВА БОССА ПРОЙДЕНЫ'));
       sectorScores[sector]=game.score;
     }
   }
@@ -289,7 +310,7 @@ test('0.2: все три сектора проходимы через реаль
   game.launch();
   assert.equal(game.state,'ready');
   assert.equal(game.level,0);
-  assert.equal(elements.get('compactSector').textContent,'01/03');
+  assert.equal(elements.get('compactSector').textContent,'01/05');
   assert.equal(game.lives,3);
   assert.equal(game.score,0);
   assert.equal(game.best,best);
@@ -427,7 +448,7 @@ test('perf: частицы ограничены и диагностически�
 
 test('perf: sprites мяча и платформы создаются однократно и переиспользуются', () => {
   const {game,CFG,gradientCalls}=createEnvironment();
-  assert.equal(game.spritePaintCount,6);
+  assert.equal(game.spritePaintCount,7);
   assert.ok(game.sprites.paddleNormal && game.sprites.paddleWide);
   assert.ok(game.sprites.ballNormal && game.sprites.ballPulse);
   assert.equal(game.sprites.ballNormal.width,CFG.ballRadius*2+72);
@@ -556,7 +577,8 @@ test('0.3: завершение сектора даёт бонус за жизн
       brick.lock=0;game.hitBrick(brick,game.bricks.length-1);hits++;
     }
     assert.ok(hits>0);
-    if(sector===LEVELS.length-1)finishGuardian(game);
+    if(sector===2)finishGuardian(game);
+    if(sector===LEVELS.length-1)finishReactor(game);
     assert.equal(game.lastSectorBonus,200*(oldLevel+1));
     assert.equal(game.comboHits,0);
     assert.equal(game.lastSectorBestCombo,hits);
@@ -605,7 +627,7 @@ test('0.3: подсказки бонусов и серии не требуют �
   assert.doesNotThrow(()=>game.drawGameplayStatus());
   assert.equal(game.comboHits,2);
   assert.ok(game.timers.wide>0&&game.timers.slow>0&&game.timers.pulse>0);
-  assert.equal(elements.get('compactSector').textContent,'01/03');
+  assert.equal(elements.get('compactSector').textContent,'01/05');
   assert.equal(game.paddle.w,145);
 });
 
@@ -940,7 +962,7 @@ test('0.5.1: два облика Стража кэшируются, рендер
   assert.ok(game.sprites.guardianOpen&&game.sprites.guardianShield);
   assert.equal(game.sprites.guardianOpen.width,224);
   assert.equal(game.sprites.guardianShield.height,136);
-  assert.equal(game.spritePaintCount,6);
+  assert.equal(game.spritePaintCount,7);
   game.launch();game.level=2;game.startLevel();game.launch();
   game.bricks=[];game.checkStageCompletion();
   game.draw();const paints=game.spritePaintCount;
