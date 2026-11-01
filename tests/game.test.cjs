@@ -1837,8 +1837,11 @@ test('1.0 RC: взрыв во время пробивного импульса �
   ball.x=blast.x+blast.w/2;ball.y=blast.y+blast.h+ball.r+.3;
   ball.vx=0;ball.vy=-game.levelSpeed();
   assert.doesNotThrow(()=>game.moveBall(.004),'a deleted neighbour must be skipped');
-  assert.equal(game.bricks.length,1);
-  assert.equal(game.bricks[0],remote);
+  // The right neighbour is armored and keeps one HP; the left is destroyed.
+  assert.equal(game.bricks.length,2);
+  assert.ok(game.bricks.includes(remote));
+  assert.ok(game.bricks.includes(right));
+  assert.equal(right.hp,1);
   assert.equal(game.state,'playing');
   assert.ok(Number.isFinite(ball.x)&&Number.isFinite(ball.y));
 });
