@@ -590,3 +590,73 @@ test('0.3: подсказки бонусов и серии не требуют �
   assert.equal(elements.get('compactSector').textContent,'01/03');
   assert.equal(game.paddle.w,145);
 });
+
+test('0.3: статистика считает удары, уничтоженные блоки и импульсы независимо от комбо', () => {
+  const {game}=createEnvironment();
+  game.launch();game.launch();
+  for(let i=0;i<4;i++)game.hitBrick(game.bricks[0],0);
+  assert.equal(game.stats.hits,4);
+  assert.equal(game.stats.bricks,4);
+  assert.equal(game.stats.bestCombo,4);
+  game.energy=100;game.pulse();game.pulse();
+  assert.equal(game.stats.pulses,1);
+  assert.ok(game.stats.bestCombo>=game.bestComboInSector);
+  const armorLevel=game.level;
+  assert.equal(armorLevel,0);
+});
+
+test('0.3: активное время и результаты не растут на паузе, экран поражения показывает счётчики', () => {
+  const {game,elements}=createEnvironment();
+  game.launch();game.launch();
+  game.hitBrick(game.bricks[0],0);
+  game.update(.05);
+  const active=game.stats.activeSeconds;
+  game.togglePause();
+  for(let i=0;i<100;i++)game.update(.05);
+  assert.equal(game.stats.activeSeconds,active);
+  game.resume();
+  game.update(.05);
+  assert.ok(game.stats.activeSeconds>active);
+  game.stats.activeSeconds=65.4;
+  assert.equal(game.elapsedLabel(),'1:05');
+  game.end('lost');
+  const html=elements.get('overlay').innerHTML;
+  assert.ok(html.includes('class="run-stats"'));
+  assert.ok(html.includes('1:05'));
+  assert.ok(html.includes('УДАРЫ: 1 · ИМПУЛЬСЫ: 0'));
+  game.launch();
+  assert.equal(game.stats.activeSeconds,0);
+  assert.equal(game.stats.hits,0);
+  assert.equal(game.stats.bricks,0);
+  assert.equal(game.stats.bestCombo,0);
+});
+
+test('0.3: прогресс блока синхронизируется между секторами, статистика сохраняется до финала', () => {
+  const {game,elements,LEVELS}=createEnvironment();
+  game.launch();game.launch();
+  const firstTotal=game.bricks.length;
+  assert.equal(game.levelBricksTotal,firstTotal);
+  assert.ok(elements.get('stageLabel').textContent.includes(firstTotal+' БЛОКОВ'));
+  for(let level=0;level<LEVELS.length;level++){
+    for(let i=game.bricks.length-1;i>=0;i--){
+      const brick=game.bricks[i];
+      while(brick.hp>0){brick.lock=0;game.hitBrick(brick,i);}
+    }
+    assert.equal(game.bricks.length,0);
+    if(level<LEVELS.length-1){
+      const destroyed=game.stats.bricks;
+      game.launch();
+      assert.equal(game.level,level+1);
+      assert.equal(game.stats.bricks,destroyed);
+      assert.equal(game.levelBricksTotal,game.bricks.length);
+      assert.ok(elements.get('stageLabel').textContent.includes(game.bricks.length+' БЛОКОВ'));
+      game.launch();
+    }
+  }
+  assert.equal(game.state,'won');
+  assert.equal(game.stats.bricks,LEVELS.reduce((sum,sector)=>sum+sector.rows.join('').replaceAll('.','').length,0));
+  assert.ok(elements.get('overlay').innerHTML.includes('run-stats'));
+  assert.ok(game.stats.bestCombo>0);
+  game.launch();
+  assert.equal(game.stats.bricks,0);
+});
