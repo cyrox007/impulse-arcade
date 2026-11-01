@@ -559,7 +559,6 @@ class Game {
       const interval=boss.kind==='reactor'?2.9:3.5;
       if(boss.shotClock>=interval){boss.shotClock-=interval;this.shootBoss(boss)}
     }
-    }
     if(this.state!=='ready'&&this.state!=='playing')return;
     const move=(this.keys.ArrowRight||this.keys.KeyD?1:0)-(this.keys.ArrowLeft||this.keys.KeyA?1:0);
     if(move!==0)this.targetX+=move*CFG.paddleSpeed*dt;
