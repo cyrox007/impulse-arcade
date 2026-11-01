@@ -17,3 +17,8 @@ button{font:inherit;cursor:pointer}button:focus-visible{outline:2px solid #9beaf
   .overlay-action { padding: 9px 12px; font-size: 11px; }
   .overlay-small { display: none; }
 }
+
+/* Landscape phone: allow vertical scrolling instead of narrowing the stage. */
+@media (max-height: 500px) and (orientation: landscape) {
+  .game-stage { min-height: 360px; max-height: none; width: min(100%, 240px); }
+}
