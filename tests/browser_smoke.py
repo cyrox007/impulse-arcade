@@ -40,7 +40,7 @@ with sync_playwright() as pw:
         page.add_script_tag(content=js)
         assert page.evaluate('window.__impulseDebug().state') == 'menu'
         assert page.locator('#compactSector').inner_text() == '01/03'
-        assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'gameplay-04-20261101'
+        assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'gameplay-04-fx-20261101'
         assert page.locator('.eyebrow').inner_text() == 'АРКАДА • ИГРА 0.4'
         assert page.evaluate('document.documentElement.scrollWidth') <= width
         geometry = page.evaluate('''() => {
@@ -101,7 +101,7 @@ with sync_playwright() as pw:
         assert combo_stats['multiplier'] == 2, combo_stats
         assert combo_stats['gain'] >= 500, combo_stats
         assert combo_stats['timers']['wide'] > 0 and combo_stats['timers']['pulse'] > 0, combo_stats
-        assert combo_stats['marker'] == 'gameplay-04-20261101', combo_stats
+        assert combo_stats['marker'] == 'gameplay-04-fx-20261101', combo_stats
         specials = page.evaluate("""() => {
             game.level=1;game.startLevel();game.launch();
             const blast=game.bricks.find(b=>b.type==='blast');
@@ -120,6 +120,26 @@ with sync_playwright() as pw:
         assert specials['blast'] and specials['damage'], specials
         assert specials['armed'] == 1 and specials['shield'] == 0, specials
         assert specials['livesKept'] and specials['saved'] == 1, specials
+        visual_fx = page.evaluate("""() => {
+            game.level=1;game.startLevel();game.launch();
+            const normal=game.bricks.find(b=>b.type==='normal');
+            game.hitBrick(normal,game.bricks.indexOf(normal));
+            const shards=game.particles.filter(p=>p.shard).length;
+            const normalWave=game.waves.some(w=>w.radius===33);
+            const core=game.bricks.find(b=>b.type==='core');
+            game.hitBrick(core,game.bricks.indexOf(core));
+            const coreWaves=game.waves.some(w=>w.radius===49)&&game.waves.some(w=>w.radius===28);
+            const blast=game.bricks.find(b=>b.type==='blast');
+            game.hitBrick(blast,game.bricks.indexOf(blast));
+            const explosion=game.waves.some(w=>w.kind==='burst');
+            game.draw();
+            return {shards,normalWave,coreWaves,explosion,
+                    waves:window.__impulseDebug().waves,
+                    particles:window.__impulseDebug().particles};
+        }""")
+        assert visual_fx['shards'] and visual_fx['normalWave'], visual_fx
+        assert visual_fx['coreWaves'] and visual_fx['explosion'], visual_fx
+        assert visual_fx['waves'] <= 24 and visual_fx['particles'] <= 180, visual_fx
         page.locator('#pauseBtn').click()
         assert page.evaluate('window.__impulseDebug().state') == 'paused'
         page.locator('#overlayAction').click()
