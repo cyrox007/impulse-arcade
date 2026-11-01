@@ -6,3 +6,14 @@ button{font:inherit;cursor:pointer}button:focus-visible{outline:2px solid #9beaf
 .charge{margin:13px 3px 0}.charge-heading{display:flex;justify-content:space-between;color:#9aabca;font-size:10px;font-weight:900;letter-spacing:1.2px;margin-bottom:8px}.charge-track{height:9px;background:#1b2540;border-radius:20px;overflow:hidden;border:1px solid #314365}.charge-fill{height:100%;width:0%;border-radius:inherit;background:linear-gradient(90deg,#4ad6e4,#7986ff 56%,#fa70bb);transition:width .18s ease}.hint{font-size:11px;color:#8195b7;margin:8px 0 0;min-height:14px}.controls{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:13px}.control-btn{height:52px;background:#1b2a48;border:1px solid #3b5777;border-radius:11px;color:#eaf6ff;font-size:12px;font-weight:900;letter-spacing:1.25px;display:flex;align-items:center;justify-content:center;gap:10px}.control-btn:hover:not(:disabled){background:#263b5f}.control-btn--pulse{background:#2b2040;border-color:#634679}.control-btn--pulse:hover:not(:disabled){background:#3e2c55}.control-btn:disabled{opacity:.46;cursor:default}.control-icon{font-size:20px;line-height:1}.footer{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;color:#607594;margin-top:18px;font-size:9px;font-weight:850;letter-spacing:.6px}
 @media (max-width:390px){.shell{width:calc(100% - 16px);padding-top:10px}.brand h1{font-size:21px}.brand-mark{width:39px;height:39px}.topbar{margin-bottom:10px}.hud{padding:8px}.hud-value{font-size:17px}.hud-value.lives{font-size:13px}.game-stage{max-height:calc(100svh - 228px);width:min(100%,calc((100svh - 228px)*2/3))}.overlay{padding:20px 19px 45px}.overlay-icon{width:55px;height:55px;font-size:35px;margin-bottom:13px}.overlay h2{font-size:25px}.overlay p{font-size:12px;margin-bottom:14px}.footer{margin-top:10px}}
 @media(max-height:690px){.shell{padding-top:7px}.topbar{margin-bottom:8px}.hud{padding:7px 12px;margin-bottom:6px}.game-stage{max-height:calc(100svh - 275px);width:min(100%,calc((100svh - 275px)*2/3))}.charge{margin-top:8px}.controls{margin-top:8px}.control-btn{height:43px}.footer{margin-top:8px}.hint{margin-top:4px}}
+
+/* Short phones: fit the intro and controls without clipping. */
+@media (max-height: 600px) {
+  .overlay { padding: 10px 9px 16px; }
+  .overlay-icon { width: 39px; height: 39px; margin-bottom: 6px; font-size: 25px; }
+  .overlay-kicker { font-size: 8px; letter-spacing: 1.7px; margin-bottom: 4px; }
+  .overlay h2 { font-size: 20px; margin-bottom: 6px; }
+  .overlay p { font-size: 10px; line-height: 1.35; margin-bottom: 8px; }
+  .overlay-action { padding: 9px 12px; font-size: 11px; }
+  .overlay-small { display: none; }
+}
