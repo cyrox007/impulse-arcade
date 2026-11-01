@@ -1,11 +1,6 @@
 name: One-time recovery of stuck GitHub Pages deployment
 
-# Runs only when this isolated maintenance branch is updated.
-# Never publishes from this branch or modifies the game source.
 on:
-  push:
-    branches:
-      - ops/recover-pages-2026-11-01
   pull_request:
     branches: [develop]
 
@@ -16,56 +11,47 @@ permissions:
 
 jobs:
   recover:
-    if: github.event_name != 'pull_request' || github.head_ref == 'ops/recover-pages-2026-11-01'
+    if: github.head_ref == 'ops/recover-pages-2026-11-01'
     runs-on: ubuntu-latest
     steps:
-      - name: Inspect and cancel only the stale Pages deployment
+      - name: Cancel only the known stale Pages deployment and report API status
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           STALE_PAGES_ID: 13502c7405a01821456e3eb55bbb73654b9b4e160
-        shell: bash
         run: |
           set -uo pipefail
-          api="repos/${GITHUB_REPOSITORY}/pages/deployments/${STALE_PAGES_ID}"
-          before_json=$(gh api "$api" 2>&1)
-          lookup_code=$?
-          if [ "$lookup_code" -eq 0 ]; then
-            before=$(jq -r '.status // "unknown"' <<< "$before_json")
-          else
-            before="lookup_failed"
-          fi
-          echo "Deployment status before: $before"
-          action="none"
-          case "$before" in
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}/pages/deployments/${STALE_PAGES_ID}"
+          get_response=$(curl -sS --max-time 20 -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${GH_TOKEN}" -H "X-GitHub-Api-Version: 2022-11-28" -w '\n%{http_code}' "$api")
+          get_code=$(tail -n1 <<< "$get_response")
+          get_json=$(sed '$d' <<< "$get_response")
+          old_status=$(jq -r '.status // "unknown"' <<< "$get_json" 2>/dev/null || echo unknown)
+          if [ -z "$old_status" ]; then old_status=empty; fi
+          echo "Pages API GET http=$get_code status=$old_status"
+          action="skipped"
+          post_code="not-called"
+          post_detail=""
+          case "$old_status" in
             succeed|success|successful|cancelled|canceled|failed|errored)
-              action="skipped; deployment is already terminal"
-              ;;
+              action="already-terminal" ;;
             *)
-              if gh api --method POST "$api/cancel" >/dev/null 2>&1; then
-                action="cancel request accepted (HTTP 204)"
-              else
-                action="cancel request failed; verify token permission or deployment ID"
-              fi
-              ;;
+              post_response=$(curl -sS --max-time 25 -X POST -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${GH_TOKEN}" -H "X-GitHub-Api-Version: 2022-11-28" -w '\n%{http_code}' "$api/cancel")
+              post_code=$(tail -n1 <<< "$post_response")
+              post_detail=$(sed '$d' <<< "$post_response" | jq -r '.message // ""' 2>/dev/null || true)
+              if [ "$post_code" = 204 ]; then action="cancel-accepted"; else action="cancel-not-accepted"; fi ;;
           esac
-          after_json=$(gh api "$api" 2>&1)
-          after_code=$?
-          if [ "$after_code" -eq 0 ]; then
-            after=$(jq -r '.status // "unknown"' <<< "$after_json")
-          else
-            after="lookup_failed"
-          fi
-          echo "Action: $action"
-          echo "Deployment status after: $after"
-          printf -v report '%s\n' \
-            '### Автоматическая попытка разблокировать GitHub Pages' \
-            "- Деплой из ошибки: \`$STALE_PAGES_ID\`." \
-            "- Статус до: \`$before\`." \
-            "- Действие: $action." \
-            "- Статус после: \`$after\`." \
-            '- Запуск выполнялся в изолированной служебной ветке, игровой код и источник публикации не изменялись.' \
-            '- Это не подтверждает успешный деплой свежей версии; проверка необходима отдельно.'
-          gh issue comment 3 --body "$report" || true
-          case "$action" in
-            *failed*) exit 1;;
-          esac
+          after_response=$(curl -sS --max-time 20 -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${GH_TOKEN}" -H "X-GitHub-Api-Version: 2022-11-28" -w '\n%{http_code}' "$api")
+          after_code=$(tail -n1 <<< "$after_response")
+          after_json=$(sed '$d' <<< "$after_response")
+          after_status=$(jq -r '.status // "unknown"' <<< "$after_json" 2>/dev/null || echo unknown)
+          echo "Pages API POST http=$post_code action=$action detail=$post_detail"
+          echo "Pages API after http=$after_code status=$after_status"
+          report=$(printf '%s\n' '### GitHub Pages: результат попытки восстановления' \
+            "- Деплой из ошибки: $STALE_PAGES_ID" \
+            "- GET: HTTP $get_code, статус: $old_status" \
+            "- Cancel API: HTTP $post_code, результат: $action" \
+            "- Ответ API: $post_detail" \
+            "- Повторный GET: HTTP $after_code, статус: $after_status" \
+            '- Выполнено в отдельной служебной ветке, игровой код и сайт не переписывались.')
+          gh issue comment 3 --repo "$GITHUB_REPOSITORY" --body "$report" || true
+          [ "$action" != "cancel-not-accepted" ]
