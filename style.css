@@ -196,3 +196,14 @@ button{font:inherit;cursor:pointer}button:focus-visible{outline:2px solid #9beaf
   .overlay h2 { font-size: 19px; margin-bottom: 5px; }
   .overlay-action { min-height: 36px; padding: 6px 12px; }
 }
+
+.run-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;width:100%;max-width:300px;margin:-2px 0 10px}
+.run-stats span{min-width:0;padding:7px 3px;border:1px solid #334864;border-radius:7px;background:#0b1835b5;color:#96b3d2;font-size:9px;letter-spacing:.4px;font-weight:800}
+.run-stats strong{display:block;margin-top:2px;font-size:17px;color:#f2faff;font-variant-numeric:tabular-nums}
+.run-stats-more{margin:-3px 0 12px;font-size:10px;letter-spacing:.5px;color:#8dc9e1}
+@media (max-width:540px) and (orientation:portrait){
+  .run-stats{gap:4px;margin:-2px 0 6px}
+  .run-stats span{padding:4px 2px;font-size:8px}
+  .run-stats strong{font-size:14px}
+  .run-stats-more{font-size:9px;margin:-2px 0 7px}
+}
