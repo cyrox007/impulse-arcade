@@ -32,6 +32,7 @@ function createEnvironment({fpsDebug=false,reducedMotion=false,sharedStorage=nul
       addEventListener(type, fn) { listeners.set(type, fn); },
       querySelector() {return makeElement('child');},
       getBoundingClientRect() {return {left:0,width:480};},
+      focus() {},
       setPointerCapture() {},
       getContext() {return canvasContext;}
     };
@@ -201,8 +202,8 @@ test('ограничение положения платформы и захва
 test('статический сайт не зависит от внешних JS/CSS и имеет мета-описание', () => {
   const html = readFileSync(path.join(root,'index.html'),'utf8');
   assert.match(html, /name="description"/);
-  assert.match(html, /src="game\.js\?v=gameplay-090-20261101"/);
-  assert.match(html, /href="style\.css\?v=gameplay-090-20261101"/);
+  assert.match(html, /src="game\.js\?v=gameplay-100rc-20261101"/);
+  assert.match(html, /href="style\.css\?v=gameplay-100rc-20261101"/);
   assert.doesNotMatch(html, /<script[^>]*src="https?:\/\//i);
   assert.doesNotMatch(html, /<link[^>]*href="https?:\/\//i);
 });
@@ -1657,4 +1658,166 @@ test('0.9.0: контрольная точка не пересчитывает �
   assert.equal(next.game.state,'between');
   assert.equal(next.game.checkpoint.sector,2);
   assert.ok(next.game.score>saved);
+});
+
+test('1.0 RC: настройки записываются и восстанавливаются независимо от чекпоинта',()=>{
+  const sharedStorage=new Map();
+  const a=createEnvironment({sharedStorage});const g=a.game;
+  assert.equal(g.settings.sound,false);assert.equal(g.settings.volume,60);
+  assert.equal(g.settings.sensitivity,100);assert.equal(g.settings.effects,'auto');
+  assert.equal(g.setSetting('sound',true),true);
+  assert.equal(g.setSetting('volume',30),true);
+  assert.equal(g.setSetting('effects','reduced'),true);
+  assert.equal(g.setSetting('sensitivity',120),true);
+  assert.equal(g.reducedMotion,true);
+  assert.equal(a.elements.get('volumeValue').textContent,'30%');
+  assert.equal(a.elements.get('sensitivityValue').textContent,'120%');
+  assert.ok(sharedStorage.has(a.CFG.settingsKey));
+  assert.equal(sharedStorage.has(a.CFG.checkpointKey),false);
+  const b=createEnvironment({sharedStorage});
+  assert.equal(b.game.settings.sound,true);
+  assert.equal(b.game.settings.volume,30);
+  assert.equal(b.game.settings.effects,'reduced');
+  assert.equal(b.game.settings.sensitivity,120);
+  b.game.startNewGame();
+  assert.equal(sharedStorage.has(a.CFG.settingsKey),true,'new game must preserve settings');
+});
+
+test('1.0 RC: открытие настроек замораживает текущую игру и клавиши',()=>{
+  const {game,handlers,elements}=createEnvironment();
+  game.launch();game.launch();
+  game.ball.x=260;game.ball.y=570;
+  game.toggleSettings(true);
+  assert.equal(game.state,'paused');
+  assert.equal(game.settingsOpen,true);
+  assert.equal(elements.get('settingsPanel').hidden,false);
+  const before=[game.ball.x,game.ball.y],ticks=game.time;
+  game.update(.2);
+  assert.deepEqual([game.ball.x,game.ball.y],before);
+  assert.equal(game.time,ticks);
+  game.launch();game.togglePause();
+  assert.equal(game.state,'paused','launch/pause cannot resume while panel open');
+  let prevented=false;
+  handlers.get('window:keydown')({code:'Escape',repeat:false,preventDefault(){prevented=true}});
+  assert.equal(prevented,true);
+  assert.equal(game.settingsOpen,false);
+  assert.equal(elements.get('settingsPanel').hidden,true);
+  assert.equal(game.state,'paused','closing settings does not silently resume');
+  game.launch();assert.equal(game.state,'playing');
+});
+
+test('1.0 RC: громкость и чувствительность строго проверяются',()=>{
+  const {game,CFG}=createEnvironment();
+  for(const [key,value] of [['volume',-10],['volume',101],['volume','abc'],
+    ['sensitivity',10],['sensitivity',200],['sensitivity',90.1],
+    ['effects','ultra'],['sound','true']]){
+      assert.equal(game.setSetting(key,value),false,String(key)+' '+String(value));
+  }
+  assert.equal(game.settings.volume,60);assert.equal(game.settings.sensitivity,100);
+  game.launch();game.launch();game.setSetting('sensitivity',130);
+  game.targetX=game.paddle.x;game.keys.ArrowRight=true;
+  game.update(.01);const fast=game.targetX-game.paddle.x;
+  game.keys.ArrowRight=false;game.setSetting('sensitivity',70);
+  game.targetX=game.paddle.x;game.keys.ArrowRight=true;
+  game.update(.01);const slow=game.targetX-game.paddle.x;
+  assert.ok(fast>slow,'keyboard sensitivity must affect paddle movement');
+});
+
+test('1.0 RC: настройки уважают reduced-motion устройства, но позволяют его переопределить',()=>{
+  const {game}=createEnvironment({reducedMotion:true});
+  assert.equal(game.reducedMotion,true);
+  game.setSetting('effects','full');assert.equal(game.reducedMotion,false);
+  game.addWave(230,140,'#ffffff',30,.2);
+  assert.ok(game.waves.length>0);
+  game.addParticles(230,140,160,'#ffffff');
+  game.setSetting('effects','reduced');
+  assert.equal(game.reducedMotion,true);assert.equal(game.waves.length,0);
+  assert.ok(game.particles.length<=60);
+  game.setSetting('effects','auto');assert.equal(game.reducedMotion,true);
+});
+
+test('1.0 RC: повреждённые prefs и запрещённое хранилище не ломают управление',()=>{
+  const storage=new Map();
+  for(const raw of ['{bad json',JSON.stringify({version:12,volume:999}),
+    JSON.stringify({version:1,sound:true,volume:150,effects:'full',sensitivity:100}),
+    'x'.repeat(1100)]){
+    storage.set('impulse-arcade:settings:v1',raw);
+    const {game}=createEnvironment({sharedStorage:storage});
+    assert.equal(game.settings.volume,60);assert.equal(game.settings.sound,false);
+  }
+  const {game}=createEnvironment({storageBlocked:true});
+  assert.doesNotThrow(()=>game.setSetting('effects','reduced'));
+  assert.doesNotThrow(()=>game.setSetting('volume',20));
+  assert.doesNotThrow(()=>game.toggleSettings(true));
+  game.toggleSettings(false);game.launch();
+  assert.equal(game.state,'ready');
+});
+
+test('1.0 RC: после всех обычных блоков направленные мишени в секторах имеют выход',()=>{
+  const {game,CFG,LEVELS}=createEnvironment();game.launch();
+  for(let sector=0;sector<LEVELS.length;sector++){
+    game.level=sector;game.startLevel();
+    let alive=game.bricks.filter(b=>b.type==='directional');
+    let removed=0;
+    for(let pass=0;pass<12&&alive.length;pass++){
+      const reachable=b=>{
+        const r=CFG.ballRadius;
+        return !alive.some(other=>{
+          if(other===b)return false;
+          const horizontal=(other.x<b.x+b.w+r&&other.x+other.w>b.x-r);
+          const vertical=(other.y<b.y+b.h+r&&other.y+other.h>b.y-r);
+          if(b.face==='D')return horizontal&&other.y>=b.y+b.h&&other.y<b.y+b.h+180;
+          if(b.face==='U')return horizontal&&other.y+other.h<=b.y&&other.y+other.h>b.y-180;
+          if(b.face==='L')return vertical&&other.x+other.w<=b.x&&other.x+other.w>b.x-200;
+          return vertical&&other.x>=b.x+b.w&&other.x<b.x+b.w+200;
+        });
+      };
+      const next=alive.filter(b=>!reachable(b));
+      removed+=alive.length-next.length;alive=next;
+    }
+    assert.equal(alive.length,0,'sector '+(sector+1)+' must have no directional dependency trap');
+  }
+});
+
+test('1.0 RC: стресс трёх шаров, снарядов и случайных патрулей не нарушает бюджет',()=>{
+  for(const level of [1,2,3,4]){
+    const {game,CFG}=createEnvironment();
+    game.launch();game.level=level;game.startLevel();game.launch();game.splitBall();
+    game.applyDrop('magnet');game.applyDrop('wide');
+    game.energy=100;game.pulse();
+    for(let tick=0;tick<900;tick++){
+      const f= tick%3===0?30:tick%3===1?60:120;
+      const dt=1/f;
+      if(game.state==='ready')game.launch();
+      if(game.state==='between'||game.state==='won'||game.state==='lost')break;
+      if(tick%80===0&&game.state==='playing')game.addParticles(240,200,85,'#def0ff');
+      if(tick%65===0&&game.boss)game.shootBoss(game.boss);
+      game.update(dt);
+      game.draw();
+      assert.ok(game.activeBalls().length>=1&&game.activeBalls().length<=3);
+      assert.ok(game.particles.length<=180&&game.waves.length<=24);
+      assert.ok(game.enemyShots.length<=4);
+      assert.ok(Number.isFinite(game.score)&&game.score>=0);
+      for(const ball of game.activeBalls()){
+        assert.ok(Number.isFinite(ball.x)&&Number.isFinite(ball.y));
+        assert.ok(Number.isFinite(ball.vx)&&Number.isFinite(ball.vy));
+      }
+    }
+  }
+});
+
+test('1.0 RC: настройки и checkpoint сосуществуют при перезагрузке',()=>{
+  const sharedStorage=new Map();
+  const {game,CFG}=createEnvironment({sharedStorage});
+  game.launch();game.launch();game.setSetting('sound',true);
+  game.setSetting('effects','reduced');game.setSetting('sensitivity',110);
+  game.bricks=[];game.checkStageCompletion();
+  assert.ok(sharedStorage.has(CFG.checkpointKey));
+  const next=createEnvironment({sharedStorage});
+  assert.ok(next.game.checkpoint);
+  assert.equal(next.game.settings.sound,true);
+  assert.equal(next.game.settings.effects,'reduced');
+  assert.equal(next.game.settings.sensitivity,110);
+  next.game.launch();
+  assert.equal(next.game.level,1);
 });
