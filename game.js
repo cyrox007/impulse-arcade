@@ -18,9 +18,9 @@ const CFG = Object.freeze({
 const LEVELS = [
   {name:'ПЕРВЫЙ КОНТАКТ', speedScale:1, dropChance:.17, rows:['111111','111111','11CC11','1....1','..11..']},
   {name:'НЕОНОВЫЙ ДОЖДЬ',speedScale:1.06,dropChance:.18,rows:['212212','121X21','1PCC11','121121','U1111D','..22..','..M.M.']},
-  {name:'ЯДРО СТАНЦИИ', speedScale:1.12, dropChance:.19, rows:['222222','2C1XC2','21E112','22CC22','12L12R','1X..P1','1.M.M1']},
-  {name:'ПРИЗРАЧНЫЙ КОРИДОР',speedScale:1.16,dropChance:.20,rows:['2P12P2','11X111','C21E2C','212212','1P11P1','..UD..','.M..M.']},
-  {name:'СЕРДЦЕ РЕАКТОРА',speedScale:1.20,dropChance:.21,rows:['C2E2C2','221X22','1PCCP1','2X22X2','L2112R','..EE..','.M..M.']}
+  {name:'ЯДРО СТАНЦИИ', speedScale:1.12, dropChance:.19, rows:['222222','2C1XC2','21E112','22CC22','12L12D','1X..P1','1.M.M1']},
+  {name:'ПРИЗРАЧНЫЙ КОРИДОР',speedScale:1.16,dropChance:.20,rows:['2P12P2','11X111','C21E2C','212212','1P11P1','..UR..','.M..M.']},
+  {name:'СЕРДЦЕ РЕАКТОРА',speedScale:1.20,dropChance:.21,rows:['C2E2C2','221X22','1PCCP1','2X22X2','D2112D','..EE..','.M..M.']}
 ];
 
 const canvas = document.getElementById('game');
@@ -141,7 +141,30 @@ class Game {
         vy:code==='M'?(c%2?-60:-65):0,
         directionClock:code==='M'?1.2+.17*c:0});
     }
+    // A weak face must have room for the entire ball to approach from outside.
+    // Unlike other bricks, a directional brick can become unbeatable forever
+    // if its active side points directly at a wall.
+    for(const brick of this.bricks)this.ensureDirectionalClearance(brick);
     this.boss=null;this.enemyShots=[];this.sectorPhase='bricks';this.bricksDirty=true;
+  }
+  directionalClearance(brick,face=brick.face){
+    if(!face)return Infinity;
+    if(face==='L')return brick.x-CFG.left;
+    if(face==='R')return CFG.right-(brick.x+brick.w);
+    if(face==='U')return brick.y-CFG.top;
+    return this.paddle.y-(brick.y+brick.h);
+  }
+  ensureDirectionalClearance(brick){
+    if(brick.type!=='directional')return;
+    // A ball needs two radii between a brick face and arena boundary:
+    // one radius next to the brick and one next to the wall.
+    const required=2*CFG.ballRadius+2;
+    if(this.directionalClearance(brick)>=required)return;
+    const fallback=['D','U','L','R'].find(face=>this.directionalClearance(brick,face)>=required);
+    // Extremely constrained future layouts must fail visibly during testing,
+    // rather than silently creating an invulnerable target.
+    if(!fallback)throw new Error('No reachable face for directional brick at '+brick.row+','+brick.col);
+    brick.face=fallback;
   }
   startNewGame(){
     this.score=0;this.lives=3;this.energy=0;this.level=0;this.timers={pulse:0,wide:0,slow:0,magnet:0};
