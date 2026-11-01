@@ -18,7 +18,9 @@ const CFG = Object.freeze({
 const LEVELS = [
   {name:'ПЕРВЫЙ КОНТАКТ', speedScale:1, dropChance:.17, rows:['111111','111111','11CC11','1....1','..11..']},
   {name:'НЕОНОВЫЙ ДОЖДЬ',speedScale:1.06,dropChance:.18,rows:['212212','121X21','1PCC11','121121','.1111.','..22..','......','..M...','......','...M..']},
-  {name:'ЯДРО СТАНЦИИ', speedScale:1.12, dropChance:.19, rows:['222222','2C1XC2','21E112','22CC22','121121','1X..P1','1....1','......','..M...','......','...M..']}
+  {name:'ЯДРО СТАНЦИИ', speedScale:1.12, dropChance:.19, rows:['222222','2C1XC2','21E112','22CC22','121121','1X..P1','1....1','......','..M...','......','...M..']},
+  {name:'ПРИЗРАЧНЫЙ КОРИДОР',speedScale:1.16,dropChance:.20,rows:['2P12P2','11X111','C21E2C','212212','1P11P1','..22..','......','......','..M...','......','...M..']},
+  {name:'СЕРДЦЕ РЕАКТОРА',speedScale:1.20,dropChance:.21,rows:['C2E2C2','221X22','1PCCP1','2X22X2','121121','..EE..','......','......','..M...','......','...M..']}
 ];
 
 const canvas = document.getElementById('game');
@@ -91,7 +93,8 @@ class Game {
       ballNormal:this.makeBallSprite(false),
       ballPulse:this.makeBallSprite(true),
       guardianOpen:this.makeGuardianSprite(false),
-      guardianShield:this.makeGuardianSprite(true)
+      guardianShield:this.makeGuardianSprite(true),
+      reactor:this.makeReactorSprite()
     };
     this.profileEnabled=Boolean(window.location && /(?:\?|&)fps=1(?:&|$)/.test(window.location.search||''));
     this.performance={fps:0,maxFrameMs:0,avgUpdateMs:0,avgDrawMs:0,
@@ -130,7 +133,7 @@ class Game {
         row:r,col:c,lock:0,
         anchorX:CFG.brickStartX+c*(CFG.brickW+CFG.brickGapX),
         anchorY:CFG.brickStartY+r*(CFG.brickH+CFG.brickGapY),
-        path:code==='M'?(this.level===2&&r===10?'vertical':this.level===2?'sine':'horizontal'):null,
+        path:code==='M'?(this.level>=2&&r===10?'vertical':this.level>=2&&r===8?'sine':'horizontal'):null,
         minX:CFG.brickStartX,maxX:CFG.right-CFG.brickW-12,
         minY:CFG.brickStartY+r*(CFG.brickH+CFG.brickGapY)-10,
         maxY:CFG.brickStartY+r*(CFG.brickH+CFG.brickGapY)+86,
@@ -238,20 +241,67 @@ class Game {
     this.showOverlay(kind);beep(kind==='won'?720:180,.25,.04,'triangle');
   }
   beginGuardian(){
-    if(this.sectorPhase!=='bricks'||this.level!==LEVELS.length-1)return;
+    if(this.sectorPhase!=='bricks'||this.level!==2)return;
     this.sectorPhase='guardian';
-    this.boss={x:CFG.width/2-80,y:138,w:160,h:66,hp:6,maxHp:6,lock:0,phaseTime:0,hitFlash:0};
+    this.boss={kind:'guardian',x:CFG.width/2-80,y:138,w:160,h:66,hp:6,maxHp:6,lock:0,phaseTime:0,hitFlash:0};
     this.addWave(CFG.width/2,170,'#f6acff',90,.4,3);
     this.addParticles(CFG.width/2,170,28,'#df96ff');
     beep(280,.17,.04,'sawtooth');this.updateUI();
   }
+  beginReactor(){
+    if(this.sectorPhase!=='bricks'||this.level!==LEVELS.length-1)return;
+    this.sectorPhase='reactor';
+    this.boss={kind:'reactor',x:CFG.width/2-94,y:139,w:188,h:76,
+      hp:6,maxHp:6,lock:0,phaseTime:0,hitFlash:0,vx:65,
+      minX:CFG.left+64,maxX:CFG.right-64-188,
+      nodes:[{offset:36,hp:2},{offset:94,hp:2},{offset:152,hp:2}]};
+    this.addWave(CFG.width/2,179,'#f5b37b',105,.4,3);
+    this.addParticles(CFG.width/2,179,28,'#ffc690',{shard:true});
+    beep(230,.20,.05,'sawtooth');this.updateUI();
+  }
   guardianVulnerable(){
-    return this.boss!==null && this.boss.phaseTime%3.5<2.5;
+    return this.boss!==null&&this.boss.kind==='guardian'&&this.boss.phaseTime%3.5<2.5;
+  }
+  reactorNodes(){
+    const b=this.boss;
+    return b?.kind==='reactor'?b.nodes.filter(n=>n.hp>0):[];
   }
   checkStageCompletion(){
     if(this.bricks.length||this.state!=='playing'||this.sectorPhase!=='bricks')return;
-    if(this.level===LEVELS.length-1)this.beginGuardian();
+    if(this.level===2)this.beginGuardian();
+    else if(this.level===LEVELS.length-1)this.beginReactor();
     else this.completeLevel();
+  }
+  damageReactor(node){
+    const boss=this.boss;
+    if(!boss||boss.kind!=='reactor'||this.state!=='playing'||boss.lock>0||node.hp<=0)return false;
+    boss.lock=.16;boss.hitFlash=.20;node.hp--;boss.hp--;this.runStats.hits++;
+    this.score+=400*(this.level+1);this.energy=clamp(this.energy+14,0,100);
+    const x=boss.x+node.offset,y=boss.y+boss.h-10;
+    this.addWave(x,y,'#ffd39d',37,.24,2);
+    this.addParticles(x,y,13,'#ffa96c',{shard:true,life:.36});
+    beep(480+node.hp*55,.09,.038,'triangle');
+    if(boss.hp<=0){
+      this.score+=3000;this.runStats.broken++;
+      this.addParticles(boss.x+boss.w/2,boss.y+38,65,'#ffd39d',{shard:true,life:.62});
+      this.addWave(boss.x+boss.w/2,boss.y+38,'#ffb973',145,.50,3,'burst');
+      this.addWave(boss.x+boss.w/2,boss.y+38,'#ff7bbc',176,.57,2);
+      this.flash=Math.max(this.flash,this.reducedMotion ? .07 : .3);
+      this.boss=null;this.sectorPhase='finished';this.completeLevel();
+    }else{this.updateBest();this.updateUI()}
+    return true;
+  }
+  reactorCollision(b,prevX,prevY){
+    const boss=this.boss;
+    if(!boss||boss.kind!=='reactor')return false;
+    const cx=clamp(b.x,boss.x,boss.x+boss.w),cy=clamp(b.y,boss.y,boss.y+boss.h);
+    if((b.x-cx)**2+(b.y-cy)**2>b.r*b.r)return false;
+    const node=boss.nodes.find(n=>n.hp>0&&
+      (b.x-(boss.x+n.offset))**2+(b.y-(boss.y+boss.h-10))**2<=(b.r+18)**2);
+    if(node&&boss.lock<=0)this.damageReactor(node);
+    if(this.state==='playing'&&(!node||this.timers.pulse<=0))
+      this.reflectBallFromRect(boss,prevX,prevY,b);
+    return true;
   }
   damageGuardian(){
     const boss=this.boss;
@@ -443,10 +493,16 @@ class Game {
     for(let i=this.particles.length-1;i>=0;i--){const p=this.particles[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=125*dt;p.life-=dt;if(p.life<=0)this.particles.splice(i,1)}
     for(let i=this.waves.length-1;i>=0;i--){const wave=this.waves[i];wave.life-=dt;if(wave.life<=0)this.waves.splice(i,1)}
     if(this.state==='playing'&&this.boss){
-      this.boss.phaseTime+=dt;
-      this.boss.lock=Math.max(0,this.boss.lock-dt);
-      this.boss.hitFlash=Math.max(0,this.boss.hitFlash-dt);
-      this.boss.y=138+(this.reducedMotion?0:4*Math.sin(this.boss.phaseTime*2.3));
+      const boss=this.boss;
+      boss.phaseTime+=dt;
+      boss.lock=Math.max(0,boss.lock-dt);
+      boss.hitFlash=Math.max(0,boss.hitFlash-dt);
+      if(boss.kind==='reactor'){
+        boss.x+=boss.vx*dt;
+        if(boss.x>boss.maxX){boss.x=boss.maxX-(boss.x-boss.maxX);boss.vx=-Math.abs(boss.vx)}
+        else if(boss.x<boss.minX){boss.x=boss.minX+(boss.minX-boss.x);boss.vx=Math.abs(boss.vx)}
+        boss.y=139+(this.reducedMotion?0:3*Math.sin(boss.phaseTime*2));
+      }else boss.y=138+(this.reducedMotion?0:4*Math.sin(boss.phaseTime*2.3));
     }
     if(this.state!=='ready'&&this.state!=='playing')return;
     const move=(this.keys.ArrowRight||this.keys.KeyD?1:0)-(this.keys.ArrowLeft||this.keys.KeyA?1:0);
@@ -546,7 +602,9 @@ class Game {
       }
       if(this.state!=='playing')break;
     }
-    if(this.boss&&this.state==='playing'){
+    if(this.boss?.kind==='reactor'&&this.state==='playing')
+      this.reactorCollision(b,prevX,prevY);
+    if(this.boss?.kind==='guardian'&&this.state==='playing'){
       const guardian=this.boss;
       const closeX=clamp(b.x,guardian.x,guardian.x+guardian.w);
       const closeY=clamp(b.y,guardian.y,guardian.y+guardian.h);
@@ -588,10 +646,10 @@ class Game {
   }
   overlayContent(kind){
     const common={
-      intro:{icon:'✦',kicker:'НОВАЯ АРКАДА',title:'ИМПУЛЬС',text:'Разрушай блоки, собирай усиления и заряжай пробивной импульс. В третьем секторе тебя ждёт Страж ядра.',action:'НАЧАТЬ ИГРУ',small:'На телефоне двигай платформу пальцем по полю. На ПК — мышь или стрелки.'},
+      intro:{icon:'✦',kicker:'НОВАЯ АРКАДА',title:'ИМПУЛЬС',text:'Пять секторов, мультишар и новые испытания. В третьем секторе Страж ядра, в пятом — Реактор.',action:'НАЧАТЬ ИГРУ',small:'На телефоне двигай платформу пальцем по полю. На ПК — мышь или стрелки.'},
       pause:{icon:'Ⅱ',kicker:'ИГРА ПРИОСТАНОВЛЕНА',title:'ПАУЗА',text:'Шар ждёт твоего возвращения.',action:'ПРОДОЛЖИТЬ',small:'Клавиша P — пауза / продолжить.'},
       between:{icon:'✧',kicker:'СЕКТОР ОЧИЩЕН',title:'ОТЛИЧНАЯ РАБОТА',text:`Следующий сектор: ${LEVELS[this.level+1]?.name ?? 'ФИНАЛ'}. Бонус за жизни: +${this.lastSectorBonus}. Лучшая серия: ${this.lastSectorBestCombo}. Жизни и счёт сохраняются.`,action:'СЛЕДУЮЩИЙ СЕКТОР',small:'Впереди более прочные блоки.'},
-      won:{icon:'★',kicker:'МИССИЯ ВЫПОЛНЕНА',title:'ТРИ СЕКТОРА И СТРАЖ ПРОЙДЕНЫ',text:`Финальный счёт: ${this.score.toLocaleString('ru-RU')}. Бонус финального сектора: +${this.lastSectorBonus}. Твой рекорд: ${this.best.toLocaleString('ru-RU')}.`,action:'СЫГРАТЬ СНОВА',small:this.statsSummary()},
+      won:{icon:'★',kicker:'МИССИЯ ВЫПОЛНЕНА',title:'ПЯТЬ СЕКТОРОВ И ДВА БОССА ПРОЙДЕНЫ',text:`Финальный счёт: ${this.score.toLocaleString('ru-RU')}. Бонус финального сектора: +${this.lastSectorBonus}. Твой рекорд: ${this.best.toLocaleString('ru-RU')}.`,action:'СЫГРАТЬ СНОВА',small:this.statsSummary()},
       lost:{icon:'✕',kicker:'ПОПЫТКА ЗАВЕРШЕНА',title:'ИГРА ОКОНЧЕНА',text:`Ты набрал ${this.score.toLocaleString('ru-RU')} очков. Попробуй ещё раз!`,action:'НОВАЯ ПОПЫТКА',small:this.statsSummary()}
     }[kind];
     return `<div class="overlay-icon" aria-hidden="true">${common.icon}</div><div class="overlay-kicker">${common.kicker}</div><h2>${common.title}</h2><p>${common.text}</p><button type="button" class="overlay-action" id="overlayAction">${common.action}</button><div class="overlay-small">${common.small}</div>`;
@@ -659,7 +717,7 @@ class Game {
     if(this.timers.magnet>0)effects.push(`МАГНИТ ${Math.ceil(this.timers.magnet)}с`);
     if(this.activeBalls().length>1)effects.push('ШАРЫ ×'+this.activeBalls().length);
     if(this.shieldCharges>0)effects.push('БАРЬЕР ×1');
-    if(this.boss)effects.push('СТРАЖ '+this.boss.hp+'/'+this.boss.maxHp);
+    if(this.boss)effects.push((this.boss.kind==='reactor'?'РЕАКТОР ':'СТРАЖ ')+this.boss.hp+'/'+this.boss.maxHp);
     if(effects.length){
       ctx.fillStyle='#a4f5ed';ctx.font='11px system-ui';
       ctx.fillText(effects.slice(0,3).join(' · '),CFG.left+4,94);
@@ -777,8 +835,70 @@ class Game {
     this.spritePaintCount++;
     return layer.canvas;
   }
+  paintReactorSprite(target){
+    const poly=(points,fill,stroke)=>{
+      target.beginPath();target.moveTo(points[0][0],points[0][1]);
+      for(let i=1;i<points.length;i++)target.lineTo(points[i][0],points[i][1]);
+      target.closePath();target.fillStyle=fill;target.fill();
+      if(stroke){target.lineWidth=2;target.strokeStyle=stroke;target.stroke()}
+    };
+    // Cached once: wide reactor hull, three open targets, heavy fins and vents.
+    const glow=target.createRadialGradient(118,69,6,118,69,106);
+    glow.addColorStop(0,'#ff9f5866');glow.addColorStop(1,'#ff6e2000');
+    target.fillStyle=glow;target.fillRect(0,0,236,124);
+    poly([[4,58],[28,32],[64,35],[75,80],[43,111],[11,94]],'#482c43','#ffbd79');
+    poly([[232,58],[208,32],[172,35],[161,80],[193,111],[225,94]],'#482c43','#ffbd79');
+    poly([[36,51],[59,21],[177,21],[200,51],[188,99],[48,99]],'#1e3247','#ed9e6b');
+    poly([[67,28],[89,12],[147,12],[169,28],[157,67],[79,67]],'#50405d','#ffc084');
+    poly([[88,38],[118,25],[148,38],[141,59],[95,59]],'#8e4668','#ffbf8b');
+    target.fillStyle='#ffcf9d';target.fillRect(82,42,72,4);
+    target.fillStyle='#e98d6d';target.fillRect(68,72,100,4);
+    // Three mounting sockets: glowing node cores are drawn live, by HP.
+    for(const x of [60,118,176]){
+      target.fillStyle='#182b42';target.beginPath();target.arc(x,90,24,0,Math.PI*2);target.fill();
+      target.strokeStyle='#ffd0a0';target.lineWidth=3;target.beginPath();target.arc(x,90,24,0,Math.PI*2);target.stroke();
+    }
+  }
+  makeReactorSprite(){
+    const layer=createLayer(236,124);if(!layer)return null;
+    this.paintReactorSprite(layer.ctx);this.spritePaintCount++;
+    return layer.canvas;
+  }
+  drawReactor(){
+    const boss=this.boss;if(!boss||boss.kind!=='reactor')return;
+    const sprite=this.sprites.reactor;
+    if(sprite)ctx.drawImage(sprite,boss.x-24,boss.y-24);
+    else{
+      // Safe cheap fallback for missing offscreen canvas.
+      roundRect(boss.x,boss.y,boss.w,boss.h,12,'#27354c','#ffbc83');
+    }
+    for(const node of boss.nodes){
+      const x=boss.x+node.offset,y=boss.y+boss.h-10;
+      ctx.beginPath();ctx.arc(x,y,18,0,Math.PI*2);
+      ctx.fillStyle=node.hp===2?'#ffb662':node.hp===1?'#ff7485':'#233248';ctx.fill();
+      ctx.strokeStyle=node.hp?'#fff0c1':'#64758e';ctx.lineWidth=2;ctx.stroke();
+      if(node.hp>0){
+        ctx.fillStyle='#fff1cd';ctx.beginPath();ctx.arc(x,y,node.hp===2?7:5,0,Math.PI*2);ctx.fill();
+      }else{
+        ctx.strokeStyle='#6d788b';ctx.beginPath();ctx.moveTo(x-7,y-7);ctx.lineTo(x+7,y+7);
+        ctx.moveTo(x+7,y-7);ctx.lineTo(x-7,y+7);ctx.stroke();
+      }
+    }
+    ctx.textAlign='center';ctx.font='bold 12px system-ui';ctx.fillStyle='#ffd0ac';
+    ctx.fillText('РЕАКТОР · УЗЛЫ '+boss.nodes.filter(n=>n.hp>0).length+'/3',boss.x+boss.w/2,boss.y-43);
+    for(let i=0;i<boss.nodes.length;i++){
+      const x=boss.x+boss.w/2-52+i*39;
+      roundRect(x,boss.y-37,31,7,2,boss.nodes[i].hp===2?'#ffd08d':boss.nodes[i].hp===1?'#ff7c94':'#344252',null);
+    }
+    if(boss.hitFlash>0){
+      ctx.globalAlpha=Math.min(.6,boss.hitFlash*3);
+      ctx.fillStyle='#fff6d6';ctx.fillRect(boss.x+16,boss.y+7,boss.w-32,6);ctx.globalAlpha=1;
+    }
+    ctx.lineWidth=1;ctx.globalAlpha=1;
+  }
   drawGuardian(){
     const boss=this.boss;if(!boss)return;
+    if(boss.kind==='reactor'){this.drawReactor();return}
     const shielded=!this.guardianVulnerable(),cx=boss.x+boss.w/2,cy=boss.y+boss.h/2;
     const sprite=shielded?this.sprites.guardianShield:this.sprites.guardianOpen;
     if(sprite)ctx.drawImage(sprite,cx-112,cy-67);

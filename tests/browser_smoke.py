@@ -39,9 +39,9 @@ with sync_playwright() as pw:
         page.add_style_tag(content=css)
         page.add_script_tag(content=js)
         assert page.evaluate('window.__impulseDebug().state') == 'menu'
-        assert page.locator('#compactSector').inner_text() == '01/03'
-        assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'gameplay-060-20261101'
-        assert page.locator('.eyebrow').inner_text() == 'АРКАДА • ИГРА 0.6'
+        assert page.locator('#compactSector').inner_text() == '01/05'
+        assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'gameplay-070-20261101'
+        assert page.locator('.eyebrow').inner_text() == 'АРКАДА • ИГРА 0.7'
         assert page.evaluate('document.documentElement.scrollWidth') <= width
         geometry = page.evaluate('''() => {
             const box = s => document.querySelector(s).getBoundingClientRect();
@@ -101,7 +101,7 @@ with sync_playwright() as pw:
         assert combo_stats['multiplier'] == 2, combo_stats
         assert combo_stats['gain'] >= 500, combo_stats
         assert combo_stats['timers']['wide'] > 0 and combo_stats['timers']['pulse'] > 0, combo_stats
-        assert combo_stats['marker'] == 'gameplay-060-20261101', combo_stats
+        assert combo_stats['marker'] == 'gameplay-070-20261101', combo_stats
         specials = page.evaluate("""() => {
             game.level=1;game.startLevel();game.launch();
             const blast=game.bricks.find(b=>b.type==='blast');
@@ -157,15 +157,44 @@ with sync_playwright() as pw:
                 game.ball.vx=0;game.ball.vy=-game.levelSpeed();
                 game.moveBall(.004);hits++;
             }
-            const won=game.state==='won'&&game.sectorPhase==='finished';
+            const continued=game.state==='between'&&game.sectorPhase==='finished';
             const overlay=document.querySelector('#overlay').textContent;
-            game.launch();game.launch(); // Restore ongoing play for the pause/blur checks below.
-            return {moved,cache,spawned,hits,won,
-                    overlay:overlay.includes('СТРАЖ'),restored:game.state==='playing'};
+            game.launch();game.launch();
+            return {moved,cache,spawned,hits,continued,
+                    overlay:overlay.includes('ПРИЗРАЧНЫЙ'),restored:game.state==='playing'&&game.level===3};
         }""")
         assert guardian_stats['moved'] and guardian_stats['cache'], guardian_stats
         assert guardian_stats['spawned'] and guardian_stats['hits'] == 6, guardian_stats
-        assert guardian_stats['won'] and guardian_stats['overlay'] and guardian_stats['restored'], guardian_stats
+        assert guardian_stats['continued'] and guardian_stats['overlay'] and guardian_stats['restored'], guardian_stats
+        reactor_stats = page.evaluate("""() => {
+            game.level=4;game.startLevel();game.launch();game.draw();
+            const special=game.bricks.some(b=>b.type==='charge') &&
+                          game.bricks.some(b=>b.type==='prism') &&
+                          game.bricks.some(b=>b.type==='moving');
+            game.bricks=[];game.checkStageCompletion();
+            const boss=game.boss;
+            const spawned=game.sectorPhase==='reactor'&&boss?.kind==='reactor'&&boss.hp===6;
+            const beforeX=boss.x;game.update(.03);
+            const patrol=boss.x!==beforeX;
+            const sprite=game.sprites.reactor && game.sprites.reactor.width===236;
+            let hits=0;
+            while(game.boss&&hits<10){
+                const reactor=game.boss,node=reactor.nodes.find(n=>n.hp>0);
+                reactor.lock=0;
+                game.ball.x=reactor.x+node.offset;
+                game.ball.y=reactor.y+reactor.h+game.ball.r+.4;
+                game.ball.vx=0;game.ball.vy=-game.levelSpeed();
+                game.moveBall(.004);hits++;
+            }
+            const won=game.state==='won'&&game.sectorPhase==='finished';
+            const overlay=document.querySelector('#overlay').textContent.includes('ПЯТЬ СЕКТОРОВ');
+            game.launch();game.launch();
+            return {special,spawned,patrol,sprite,hits,won,overlay,
+                    restored:game.state==='playing'&&game.level===0};
+        }""")
+        assert reactor_stats['special'] and reactor_stats['spawned'], reactor_stats
+        assert reactor_stats['patrol'] and reactor_stats['sprite'], reactor_stats
+        assert reactor_stats['hits'] == 6 and reactor_stats['won'] and reactor_stats['overlay'] and reactor_stats['restored'], reactor_stats
         visuals = page.evaluate("""() => {
             game.level=1;game.startLevel();game.launch();game.draw();
             const movers=game.bricks.filter(b=>b.type==='moving');
@@ -187,7 +216,7 @@ with sync_playwright() as pw:
         }""")
         assert visuals['traveled'] and visuals['cached'], visuals
         assert visuals['verticalMotion'] and visuals['open'] and visuals['closed'], visuals
-        assert visuals['spriteCount'] == 6 and visuals['screen'] == 'guardian', visuals
+        assert visuals['spriteCount'] == 7 and visuals['screen'] == 'guardian', visuals
         # Restore gameplay after checking the boss appearance.
         multiball = page.evaluate("""() => {
             game.startNewGame();game.launch();
@@ -257,8 +286,8 @@ with sync_playwright() as pw:
                     paddle:!!game.sprites.paddleWide,
                     visibleStats:window.__impulseDebug().avgDrawMs};
         }""")
-        assert sprite_stats['before'] == 6, sprite_stats
-        assert sprite_stats['after'] == 6, sprite_stats
+        assert sprite_stats['before'] == 7, sprite_stats
+        assert sprite_stats['after'] == 7, sprite_stats
         assert sprite_stats['ball'] and sprite_stats['paddle'], sprite_stats
         assert isinstance(sprite_stats['visibleStats'], (int, float)), sprite_stats
         print(f"{label}: sector3 90 paints in {paint_stats['ms']:.1f}ms (desktop/mobile emulation)")
