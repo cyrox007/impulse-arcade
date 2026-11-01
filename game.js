@@ -134,7 +134,7 @@ class Game {
         minX:CFG.brickStartX,maxX:CFG.right-CFG.brickW-12,
         minY:CFG.brickStartY+r*(CFG.brickH+CFG.brickGapY)-10,
         maxY:CFG.brickStartY+r*(CFG.brickH+CFG.brickGapY)+86,
-        vx:code==='M'?(r%2?-110:120):0,
+        vx:code==='M'?(r%4===3?112:-124):0,
         vy:code==='M'?95:0});
     }
     this.boss=null;this.sectorPhase='bricks';this.bricksDirty=true;
@@ -217,7 +217,7 @@ class Game {
       this.addParticles(CFG.width/2,boss.y+boss.h/2,60,'#ffcf94',{shard:true,life:.65});
       this.addWave(CFG.width/2,boss.y+boss.h/2,'#ffd09a',110,.46,3,'burst');
       this.addWave(CFG.width/2,boss.y+boss.h/2,'#f5a8ff',148,.56,2);
-      this.flash=Math.max(this.flash,this.reducedMotion?.06:.27);
+      this.flash=Math.max(this.flash,this.reducedMotion ? .06 : .27);
       this.updateBest();this.completeLevel();
     }else{this.updateBest();this.updateUI()}
     return true;
