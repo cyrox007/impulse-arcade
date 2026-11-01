@@ -275,10 +275,15 @@ test('0.2: все три сектора проходимы через реаль
       brick.lock=0;
       const oldHP=brick.hp;
       // Put the ball just below a real brick and let moveBall resolve contact.
-      game.ball.x=brick.x+brick.w/2;
-      game.ball.y=brick.y+brick.h+game.ball.r+.5;
-      game.ball.vx=0;game.ball.vy=-game.levelSpeed();
-      game.moveBall(.004);
+      if(brick.type==='directional'){
+        // Direction-sensitive collisions are covered separately with all four faces.
+        game.hitBrick(brick,game.bricks.indexOf(brick));
+      }else{
+        game.ball.x=brick.x+brick.w/2;
+        game.ball.y=brick.y+brick.h+game.ball.r+.5;
+        game.ball.vx=0;game.ball.vy=-game.levelSpeed();
+        game.moveBall(.004);
+      }
       assert.equal(brick.hp,oldHP-1,'every contact must damage exactly once');
       if(++contacts>200)assert.fail('unbounded contact loop');
     }
@@ -1314,6 +1319,7 @@ test('0.8: вертикальные и боковые односторонние
   const left=game.bricks.find(b=>b.type==='directional'&&b.face==='L');
   const right=game.bricks.find(b=>b.type==='directional'&&b.face==='R');
   assert.ok(left&&right);
+  game.bricks=[left,right]; // isolate the target face from neighbours for angle tests
   const b=game.ball;
   b.x=left.x+left.w+b.r+.4;b.y=left.y+left.h/2;b.vx=-400;b.vy=0;
   game.moveBall(.004);assert.equal(left.hp,1);assert.ok(b.vx>0);
