@@ -457,28 +457,41 @@ class Game {
       this.ball.x=this.paddle.x;this.ball.y=this.paddle.y-17;
       return;
     }
+    for(const ball of this.activeBalls())if(ball.held){
+      ball.x=clamp(this.paddle.x+(ball.holdOffset||0),CFG.left+ball.r,CFG.right-ball.r);
+      ball.y=this.paddle.y-ball.r-1;
+      ball.holdTime=Math.max(0,(ball.holdTime||0)-dt);
+    }
     for(const b of this.bricks)b.lock=Math.max(0,b.lock-dt);
-    for(const kind of ['pulse','wide','slow']){
+    for(const kind of ['pulse','wide','slow','magnet']){
       if(this.timers[kind]<=0)continue;
       const old=this.timers[kind];this.timers[kind]=Math.max(0,old-dt);
       if(old>0&&this.timers[kind]===0){
         if(kind==='wide')this.paddle.w=CFG.paddleW;
-        if(kind==='slow'&&this.ballSpeed()>0)this.setBallSpeed(Math.min(CFG.maxSpeed,this.ballSpeed()/0.75));
-        if(kind==='pulse'&&this.ballSpeed()>CFG.maxSpeed*.83)this.setBallSpeed(CFG.maxSpeed*.83);
+        if(kind==='slow')for(const ball of this.activeBalls())if(this.ballSpeed(ball)>0)this.setBallSpeed(Math.min(CFG.maxSpeed,this.ballSpeed(ball)/.75),ball);
+        if(kind==='pulse')for(const ball of this.activeBalls())if(this.ballSpeed(ball)>CFG.maxSpeed*.83)this.setBallSpeed(CFG.maxSpeed*.83,ball);
         this.updateUI();
       }
     }
     this.updateDrops(dt);
+    if(this.activeBalls().some(b=>b.held&&(b.holdTime<=0||this.timers.magnet<=0)))
+      this.releaseHeldBalls();
     const steps=Math.max(1,Math.ceil(dt/.006));
     for(let step=0;step<steps;step++){
       if(this.state!=='playing')break;
-      this.moveBall(dt/steps);
+      const subdt=dt/steps;
+      this.updateMovingBricks(subdt);
+      for(const ball of this.activeBalls()){
+        if(this.state!=='playing')break;
+        if(ball!==this.ball&&!this.extraBalls.includes(ball))continue;
+        this.moveBall(subdt,ball,false);
+      }
     }
-    if(this.state==='playing'){
-      this.ball.trail.push({x:this.ball.x,y:this.ball.y,life:.2});
-      if(this.ball.trail.length>18)this.ball.trail.shift();
-      for(const p of this.ball.trail)p.life-=dt;
-      this.ball.trail=this.ball.trail.filter(p=>p.life>0);
+    if(this.state==='playing')for(const ball of this.activeBalls()){
+      if(!ball.held)ball.trail.push({x:ball.x,y:ball.y,life:.2});
+      if(ball.trail.length>18)ball.trail.shift();
+      for(const p of ball.trail)p.life-=dt;
+      ball.trail=ball.trail.filter(p=>p.life>0);
     }
   }
   updateDrops(dt){
@@ -489,9 +502,10 @@ class Game {
       }else if(d.y>CFG.height+15)this.drops.splice(i,1);
     }
   }
-  moveBall(dt){
-    const b=this.ball,prevX=b.x,prevY=b.y;
-    this.updateMovingBricks(dt);
+  moveBall(dt,b=this.ball,advanceMoving=true){
+    if(b.held)return;
+    const prevX=b.x,prevY=b.y;
+    if(advanceMoving)this.updateMovingBricks(dt);
     b.x+=b.vx*dt;b.y+=b.vy*dt;
     if(b.x-b.r<CFG.left){b.x=CFG.left+b.r;b.vx=Math.abs(b.vx);beep(390,.035,.017)}
     if(b.x+b.r>CFG.right){b.x=CFG.right-b.r;b.vx=-Math.abs(b.vx);beep(390,.035,.017)}
@@ -502,11 +516,18 @@ class Game {
         b.y=this.paddle.y-b.r-4;b.vy=-Math.max(80,Math.abs(b.vy));
         this.flash=.25;this.addParticles(b.x,CFG.bottom-12,18,'#87ffcf');
         beep(720,.12,.04);this.updateUI();
-      }else{this.dropBall();return}
+      }else{this.removeBall(b);return}
     }
     if(b.vy>0&&b.y+b.r>=this.paddle.y&&prevY+b.r<=this.paddle.y+5&&Math.abs(b.x-this.paddle.x)<=this.paddle.w/2+b.r){
       b.y=this.paddle.y-b.r-1;
-      const relative=clamp((b.x-this.paddle.x)/(this.paddle.w/2),-.94,.94),speed=clamp(this.ballSpeed()*1.017,this.levelSpeed(),CFG.maxSpeed);
+      const relative=clamp((b.x-this.paddle.x)/(this.paddle.w/2),-.94,.94),
+        speed=clamp(this.ballSpeed(b)*1.017,this.levelSpeed(),CFG.maxSpeed);
+      if(this.timers.magnet>0&&this.timers.pulse<=0){
+        b.held=true;b.holdTime=1.2;
+        b.holdOffset=clamp(b.x-this.paddle.x,-this.paddle.w/2+12,this.paddle.w/2-12);
+        b.vx=0;b.vy=0;this.resetCombo();this.updateUI();
+        beep(600,.09,.03,'sine');return;
+      }
       let angle=relative*1.11;
       // Centre hits should not lock the ball into a vertical loop.
       if(Math.abs(angle)<.12)angle=(b.vx<0?-1:1)*.12;
@@ -520,7 +541,7 @@ class Game {
       if((b.x-closeX)**2+(b.y-closeY)**2>b.r**2)continue;
       const pierced=this.timers.pulse>0;
       if(this.hitBrick(brick,i)&&!pierced){
-        this.reflectBallFromRect(brick,prevX,prevY);
+        this.reflectBallFromRect(brick,prevX,prevY,b);
         break;
       }
       if(this.state!=='playing')break;
@@ -534,13 +555,12 @@ class Game {
         if(guardian.lock<=0&&vulnerable)this.damageGuardian();
         // A shielded guardian always reflects. Pulse pierces only when exposed.
         if(this.state==='playing'&&(!vulnerable||this.timers.pulse<=0))
-          this.reflectBallFromRect(guardian,prevX,prevY);
+          this.reflectBallFromRect(guardian,prevX,prevY,b);
       }
     }
-    if(this.state==='playing')this.stabilizeBallAngle();
+    if(this.state==='playing')this.stabilizeBallAngle(b);
   }
-  reflectBallFromRect(rect,prevX,prevY){
-    const b=this.ball;
+  reflectBallFromRect(rect,prevX,prevY,b=this.ball){
     const fromTop=prevY+b.r<=rect.y;
     const fromBottom=prevY-b.r>=rect.y+rect.h;
     const fromLeft=prevX+b.r<=rect.x;
@@ -587,10 +607,10 @@ class Game {
     ui.pulse.disabled=this.state!=='playing'||this.energy<100||this.timers.pulse>0;
     ui.pulseLabel.textContent=this.timers.pulse>0?'ПРОБИТИЕ!':this.energy>=100?'ИМПУЛЬС ГОТОВ':`ИМПУЛЬС ${Math.floor(this.energy)}%`;
     const labels={menu:'СТАРТ',ready:'ЗАПУСК ШАРА',playing:'ШАР В ИГРЕ',paused:'ПРОДОЛЖИТЬ',between:'СЛЕД. СЕКТОР',won:'СНОВА',lost:'ПОВТОРИТЬ'};
-    ui.launchLabel.textContent=labels[this.state];ui.launch.disabled=this.state==='playing';
+    ui.launchLabel.textContent=this.state==='playing'&&this.activeBalls().some(b=>b.held)?'ОТПУСТИТЬ ШАР':labels[this.state];ui.launch.disabled=this.state==='playing'&&!this.activeBalls().some(b=>b.held);
     ui.pause.disabled=!['ready','playing','paused'].includes(this.state);
     ui.pause.textContent=this.state==='paused'?'▶':'Ⅱ';
-    ui.hint.textContent=this.timers.pulse>0?'Пробивной импульс активен: шар проходит сквозь блоки.':this.energy>=100?'Заряд готов! Нажми «ИМПУЛЬС» или F.':this.state==='ready'?'Нажми «Запуск шара» или коснись игрового поля.':'Разбивай блоки, чтобы зарядить пробивной импульс.';
+    ui.hint.textContent=this.activeBalls().some(b=>b.held)?'Мяч пойман магнитом: коснись поля или нажми «Отпустить шар».':this.timers.pulse>0?'Пробивной импульс активен: шары проходят сквозь блоки.':this.energy>=100?'Заряд готов! Нажми «ИМПУЛЬС» или F.':this.state==='ready'?'Нажми «Запуск шара» или коснись игрового поля.':'Разбивай блоки, чтобы зарядить пробивной импульс.';
   }
 
   draw(){
@@ -635,11 +655,14 @@ class Game {
     if(this.timers.wide>0)effects.push(`ПЛАТФОРМА ${Math.ceil(this.timers.wide)}с`);
     if(this.timers.slow>0)effects.push(`ЗАМЕДЛ. ${Math.ceil(this.timers.slow)}с`);
     if(this.timers.pulse>0)effects.push(`ИМПУЛЬС ${Math.ceil(this.timers.pulse)}с`);
+    if(this.timers.magnet>0)effects.push(`МАГНИТ ${Math.ceil(this.timers.magnet)}с`);
+    if(this.activeBalls().length>1)effects.push('ШАРЫ ×'+this.activeBalls().length);
     if(this.shieldCharges>0)effects.push('БАРЬЕР ×1');
     if(this.boss)effects.push('СТРАЖ '+this.boss.hp+'/'+this.boss.maxHp);
     if(effects.length){
       ctx.fillStyle='#a4f5ed';ctx.font='11px system-ui';
-      ctx.fillText(effects.join(' · '),CFG.left+4,94);
+      ctx.fillText(effects.slice(0,3).join(' · '),CFG.left+4,94);
+      if(effects.length>3)ctx.fillText(effects.slice(3).join(' · '),CFG.left+4,106);
     }
   }
   drawBackdrop(target){
@@ -661,7 +684,9 @@ class Game {
     this.brickPaintCount++;for(const brick of this.bricks){
     if(brick.type==='moving')continue;
     let c1,c2,stroke;
-    if(brick.type==='core'){c1='#ff7abb';c2='#a541a5';stroke='#ffb7dd'}
+    if(brick.type==='charge'){c1='#f9e68d';c2='#ab7041';stroke='#fff2ab'}
+    else if(brick.type==='prism'){c1='#ba9cff';c2='#6651be';stroke='#e4d2ff'}
+    else if(brick.type==='core'){c1='#ff7abb';c2='#a541a5';stroke='#ffb7dd'}
     else if(brick.type==='armor'){c1='#e4ba79';c2='#825e6d';stroke='#fff0a5'}
     else if(brick.type==='blast'){c1='#ffc07a';c2='#cc5a5c';stroke='#ffe2ab'}
     else {const colors=[['#6bcdff','#357cb3'],['#72dcf3','#346da1'],['#a28ff6','#575bba'],['#79bdf4','#3d70a7'],['#87eee3','#3b9ea9'],['#d1a3f6','#8559b9'],['#6ccde7','#4588ae']];[c1,c2]=colors[brick.row%colors.length];stroke=c1}
@@ -670,6 +695,10 @@ class Game {
     target.shadowColor=c1;target.shadowBlur=brick.type==='core'?15:5;
     roundRect(brick.x,brick.y,brick.w,brick.h,5,g,stroke,target);target.shadowBlur=0;
     target.fillStyle='#ffffff45';target.fillRect(brick.x+7,brick.y+4,brick.w-14,2);
+    if(brick.type==='charge'||brick.type==='prism'){
+      target.fillStyle='#fffefa';target.font='bold 17px system-ui';target.textAlign='center';
+      target.fillText(brick.type==='charge'?'⚡':'✧',brick.x+brick.w/2,brick.y+18);
+    }
     if(brick.type==='armor'){target.fillStyle='#19213c98';target.font='bold 14px system-ui';target.textAlign='center';target.fillText(brick.hp===2?'◆':'◇',brick.x+brick.w/2,brick.y+18)}
     if(brick.type==='blast'){target.fillStyle='#fff6dd';target.font='bold 17px system-ui';target.textAlign='center';target.fillText('✶',brick.x+brick.w/2,brick.y+18)}
     if(brick.type==='core'){target.fillStyle='#fff2ff';target.beginPath();target.moveTo(brick.x+brick.w/2,brick.y+5);target.lineTo(brick.x+brick.w/2+8,brick.y+brick.h/2);target.lineTo(brick.x+brick.w/2,brick.y+brick.h-5);target.lineTo(brick.x+brick.w/2-8,brick.y+brick.h/2);target.fill()}
@@ -774,10 +803,10 @@ class Game {
     ctx.globalAlpha=1;ctx.lineWidth=1;
   }
   drawDrops(){for(const d of this.drops){
-    const color=d.type==='wide'?'#6bf9bc':d.type==='slow'?'#81c6ff':d.type==='shield'?'#88ffd6':'#ff83a9';
+    const color=d.type==='wide'?'#6bf9bc':d.type==='slow'?'#81c6ff':d.type==='shield'?'#88ffd6':d.type==='multi'?'#c0a2ff':d.type==='magnet'?'#ffc881':'#ff83a9';
     ctx.shadowColor=color;ctx.shadowBlur=14;roundRect(d.x-13,d.y-13,26,26,8,'#192643',color);ctx.shadowBlur=0;
     ctx.fillStyle=color;ctx.font='bold 17px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';
-    ctx.fillText(d.type==='wide'?'↔':d.type==='slow'?'◷':d.type==='shield'?'⬡':'♥',d.x,d.y+1);
+    ctx.fillText(d.type==='wide'?'↔':d.type==='slow'?'◷':d.type==='shield'?'⬡':d.type==='multi'?'✳':d.type==='magnet'?'∩':'♥',d.x,d.y+1);
     ctx.textBaseline='alphabetic';
   }}
   drawShield(){
@@ -842,7 +871,8 @@ class Game {
     return layer.canvas;
   }
   drawBall(){
-    const b=this.ball,pulse=this.timers.pulse>0;
+    const pulse=this.timers.pulse>0;
+    for(const b of this.activeBalls()){
     for(const t of b.trail){
       ctx.globalAlpha=t.life/.2*.23;
       ctx.fillStyle=pulse?'#ff71d5':'#67e9ff';
@@ -855,10 +885,11 @@ class Game {
     }else{
       this.paintBall(ctx,pulse,b.x,b.y,b.r);
     }
-    if(this.state==='ready'){
+    if(this.state==='ready'||b.held){
       ctx.globalAlpha=.6+Math.sin(this.time*4)*.3;
-      ctx.strokeStyle='#a6f8ff';ctx.beginPath();ctx.arc(b.x,b.y,b.r+11,0,Math.PI*2);
+      ctx.strokeStyle=b.held?'#ffda85':'#a6f8ff';ctx.beginPath();ctx.arc(b.x,b.y,b.r+11,0,Math.PI*2);
       ctx.stroke();ctx.globalAlpha=1;
+    }
     }
   }
 
@@ -876,7 +907,7 @@ canvas.addEventListener('pointerdown',e=>{
   game.activePointerId=e.pointerId;
   pointerToX(e);
   try{canvas.setPointerCapture(e.pointerId)}catch(_){}
-  if(game.state==='ready')game.launch();
+  if(game.state==='ready'||(game.state==='playing'&&game.activeBalls().some(b=>b.held)))game.launch();
 });
 canvas.addEventListener('pointermove',e=>{
   if(e.pointerId===game.activePointerId || (e.pointerType==='mouse'&&game.activePointerId===null))pointerToX(e);
@@ -936,4 +967,4 @@ function loop(now){
 }
 requestAnimationFrame(loop);
 // Expose a read-only diagnostic snapshot for automated smoke tests, no gameplay cheats.
-window.__impulseDebug=()=>({state:game.state,score:game.score,level:game.level,lives:game.lives,bricks:game.bricks.length,energy:game.energy,combo:game.comboHits,fps:game.performance.fps,maxFrameMs:game.performance.maxFrameMs,avgUpdateMs:game.performance.avgUpdateMs,avgDrawMs:game.performance.avgDrawMs,spritePaintCount:game.spritePaintCount,moving:game.bricks.filter(b=>b.type==='moving').length,phase:game.sectorPhase,bossHP:game.boss?.hp??0,shield:game.shieldCharges,particles:game.particles.length,waves:game.waves.length,stats:{...game.runStats}});
+window.__impulseDebug=()=>({state:game.state,score:game.score,level:game.level,lives:game.lives,bricks:game.bricks.length,energy:game.energy,combo:game.comboHits,fps:game.performance.fps,maxFrameMs:game.performance.maxFrameMs,avgUpdateMs:game.performance.avgUpdateMs,avgDrawMs:game.performance.avgDrawMs,spritePaintCount:game.spritePaintCount,balls:game.activeBalls().length,held:game.activeBalls().filter(b=>b.held).length,moving:game.bricks.filter(b=>b.type==='moving').length,phase:game.sectorPhase,bossHP:game.boss?.hp??0,shield:game.shieldCharges,particles:game.particles.length,waves:game.waves.length,stats:{...game.runStats}});
