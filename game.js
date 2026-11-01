@@ -127,8 +127,8 @@ class Game {
         hp:code==='2'?2:1,maxHp:code==='2'?2:1,type:code==='C'?'core':code==='2'?'armor':code==='X'?'blast':code==='M'?'moving':'normal',
         row:r,col:c,lock:0,
         anchorX:CFG.brickStartX+c*(CFG.brickW+CFG.brickGapX),
-        minX:CFG.brickStartX+c*(CFG.brickW+CFG.brickGapX)-9,
-        maxX:CFG.brickStartX+c*(CFG.brickW+CFG.brickGapX)+9,
+        minX:CFG.brickStartX+c*(CFG.brickW+CFG.brickGapX)-4,
+        maxX:CFG.brickStartX+c*(CFG.brickW+CFG.brickGapX)+4,
         vx:code==='M'?(c%2?-36:36):0});
     }
     this.boss=null;this.sectorPhase='bricks';this.bricksDirty=true;
@@ -552,7 +552,7 @@ class Game {
     ctx.textAlign='left';ctx.font='bold 12px system-ui';
     if(this.comboHits>=2){
       ctx.fillStyle='#ffcf80';
-      ctx.fillText(`СЕРИЯ ${this.comboHits}  ×${this.comboMultiplier()}`,CFG.left+9,77);
+      ctx.fillText(`СЕРИЯ ${this.comboHits}  ×${this.comboMultiplier()}`,CFG.left+4,77);
     }
     const effects=[];
     if(this.timers.wide>0)effects.push(`ПЛАТФОРМА ${Math.ceil(this.timers.wide)}с`);
@@ -562,7 +562,7 @@ class Game {
     if(this.boss)effects.push('СТРАЖ '+this.boss.hp+'/'+this.boss.maxHp);
     if(effects.length){
       ctx.fillStyle='#a4f5ed';ctx.font='11px system-ui';
-      ctx.fillText(effects.join(' · '),CFG.left+9,94);
+      ctx.fillText(effects.join(' · '),CFG.left+4,94);
     }
   }
   drawBackdrop(target){
@@ -650,7 +650,7 @@ class Game {
     gradient.addColorStop(1,'#2475b5');
     roundRect(left,y,w,CFG.paddleH,7,gradient,'#a2f2ff',target);target.shadowBlur=0;
     roundRect(left+w/2-19,y+2,38,3,2,'#ecfaff',null,target);
-    target.fillStyle='#64dafa8a';target.fillRect(left+9,y+CFG.paddleH-1,w-18,3);
+    target.fillStyle='#64dafa8a';target.fillRect(left+4,y+CFG.paddleH-1,w-18,3);
   }
   makePaddleSprite(width,wide){
     const pad=26,layer=createLayer(width+pad*2,CFG.paddleH+pad*2);
