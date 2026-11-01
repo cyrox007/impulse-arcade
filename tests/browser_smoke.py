@@ -40,8 +40,8 @@ with sync_playwright() as pw:
         page.add_script_tag(content=js)
         assert page.evaluate('window.__impulseDebug().state') == 'menu'
         assert page.locator('#compactSector').inner_text() == '01/03'
-        assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'gameplay-03-20261101'
-        assert page.locator('.eyebrow').inner_text() == 'АРКАДА • ИГРА 0.3'
+        assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'gameplay-04-20261101'
+        assert page.locator('.eyebrow').inner_text() == 'АРКАДА • ИГРА 0.4'
         assert page.evaluate('document.documentElement.scrollWidth') <= width
         geometry = page.evaluate('''() => {
             const box = s => document.querySelector(s).getBoundingClientRect();
@@ -101,7 +101,25 @@ with sync_playwright() as pw:
         assert combo_stats['multiplier'] == 2, combo_stats
         assert combo_stats['gain'] >= 500, combo_stats
         assert combo_stats['timers']['wide'] > 0 and combo_stats['timers']['pulse'] > 0, combo_stats
-        assert combo_stats['marker'] == 'gameplay-03-20261101', combo_stats
+        assert combo_stats['marker'] == 'gameplay-04-20261101', combo_stats
+        specials = page.evaluate("""() => {
+            game.level=1;game.startLevel();game.launch();
+            const blast=game.bricks.find(b=>b.type==='blast');
+            const neighbor=game.bricks.find(b=>Math.abs(b.row-blast.row)+Math.abs(b.col-blast.col)===1);
+            const hp=neighbor.hp;
+            game.hitBrick(blast,game.bricks.indexOf(blast));
+            game.applyDrop('shield');game.draw();
+            const armed=window.__impulseDebug().shield;
+            const lives=game.lives;
+            game.ball.x=240;game.ball.y=CFG.bottom+CFG.ballRadius+3;
+            game.ball.vx=140;game.ball.vy=300;game.moveBall(.001);
+            return {blast:!!blast, damage:neighbor.hp===hp-1,
+                    armed, shield:window.__impulseDebug().shield,
+                    livesKept:game.lives===lives, saved:game.runStats.barriers};
+        }""")
+        assert specials['blast'] and specials['damage'], specials
+        assert specials['armed'] == 1 and specials['shield'] == 0, specials
+        assert specials['livesKept'] and specials['saved'] == 1, specials
         page.locator('#pauseBtn').click()
         assert page.evaluate('window.__impulseDebug().state') == 'paused'
         page.locator('#overlayAction').click()

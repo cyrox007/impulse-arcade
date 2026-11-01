@@ -17,8 +17,8 @@ const CFG = Object.freeze({
 
 const LEVELS = [
   {name:'ПЕРВЫЙ КОНТАКТ', speedScale:1, dropChance:.17, rows:['111111','111111','11CC11','1....1','..11..']},
-  {name:'НЕОНОВЫЙ ДОЖДЬ',speedScale:1.06,dropChance:.18,rows:['212212','121121','11CC11','121121','.1111.','..22..']},
-  {name:'ЯДРО СТАНЦИИ', speedScale:1.12, dropChance:.19, rows:['222222','2C11C2','211112','22CC22','121121','11..11','1....1']}
+  {name:'НЕОНОВЫЙ ДОЖДЬ',speedScale:1.06,dropChance:.18,rows:['212212','121X21','11CC11','121121','.1111.','..22..']},
+  {name:'ЯДРО СТАНЦИИ', speedScale:1.12, dropChance:.19, rows:['222222','2C1XC2','211112','22CC22','121121','1X..11','1....1']}
 ];
 
 const canvas = document.getElementById('game');
@@ -76,7 +76,8 @@ class Game {
     this.energy=0;this.bricks=[];this.drops=[];this.particles=[];this.keys={};this.activePointerId=null;
     this.paddle={x:CFG.width/2,w:CFG.paddleW,y:CFG.paddleY,h:CFG.paddleH};this.targetX=this.paddle.x;
     this.ball={x:CFG.width/2,y:CFG.paddleY-14,vx:0,vy:0,r:CFG.ballRadius,trail:[]};
-    this.timers={pulse:0,wide:0,slow:0};this.time=0;this.flash=0;
+    this.timers={pulse:0,wide:0,slow:0};this.time=0;this.flash=0;this.shieldCharges=0;
+    this.runStats={seconds:0,hits:0,broken:0,pulses:0,maxCombo:0,barriers:0};
     this.comboHits=0;this.comboUntil=0;this.bestComboInSector=0;
     this.lastSectorBonus=0;this.lastSectorBestCombo=0;
     this.stars=Array.from({length:68},(_,i)=>({x:(i*137.37)%CFG.width,y:(i*231.59)%CFG.height,r:i%7===0?1.6:.8,s:(i%4)*.16+.18}));
@@ -102,6 +103,7 @@ class Game {
     if(this.time>this.comboUntil)this.resetCombo();
     this.comboHits++;this.comboUntil=this.time+CFG.comboWindow;
     this.bestComboInSector=Math.max(this.bestComboInSector,this.comboHits);
+    this.runStats.maxCombo=Math.max(this.runStats.maxCombo,this.comboHits);
     return this.comboMultiplier();
   }
   // Enforce a minimum vertical component at extreme angles without changing speed.
@@ -121,18 +123,19 @@ class Game {
     for(let r=0;r<rows.length;r++)for(let c=0;c<rows[r].length;c++){
       const code=rows[r][c];if(code==='.')continue;
       this.bricks.push({x:CFG.brickStartX+c*(CFG.brickW+CFG.brickGapX),y:CFG.brickStartY+r*(CFG.brickH+CFG.brickGapY),w:CFG.brickW,h:CFG.brickH,
-        hp:code==='2'?2:1,maxHp:code==='2'?2:1,type:code==='C'?'core':code==='2'?'armor':'normal',row:r,lock:0});
+        hp:code==='2'?2:1,maxHp:code==='2'?2:1,type:code==='C'?'core':code==='2'?'armor':code==='X'?'blast':'normal',row:r,col:c,lock:0});
     }
     this.bricksDirty=true;
   }
   startNewGame(){
     this.score=0;this.lives=3;this.energy=0;this.level=0;this.timers={pulse:0,wide:0,slow:0};
     this.resetCombo();this.bestComboInSector=0;this.lastSectorBonus=0;this.lastSectorBestCombo=0;
+    this.runStats={seconds:0,hits:0,broken:0,pulses:0,maxCombo:0,barriers:0};this.shieldCharges=0;
     this.paddle.w=CFG.paddleW;this.paddle.x=CFG.width/2;this.targetX=this.paddle.x;
     this.drops=[];this.particles=[];this.startLevel();
   }
   startLevel(){
-    this.makeBricks();this.drops=[];this.paddle.w=CFG.paddleW;this.timers.wide=0;
+    this.makeBricks();this.drops=[];this.paddle.w=CFG.paddleW;this.timers.wide=0;this.shieldCharges=0;
     this.resetCombo();this.bestComboInSector=0;
     this.resetBall();this.setState('ready');this.hideOverlay();this.flash=0;this.updateUI();
   }
@@ -155,7 +158,7 @@ class Game {
   resume(){if(this.state!=='paused')return;this.setState(this.savedState||'ready');this.hideOverlay()}
   pulse(){
     if(this.state!=='playing'||this.energy<100||this.timers.pulse>0)return;
-    this.energy=0;this.timers.pulse=CFG.pulseDuration;this.flash=.36;
+    this.energy=0;this.timers.pulse=CFG.pulseDuration;this.flash=.36;this.runStats.pulses++;
     this.addParticles(this.ball.x,this.ball.y,28,'#ff85d9');
     this.setBallSpeed(clamp(this.ballSpeed()*1.13,this.levelSpeed(),CFG.maxSpeed));
     beep(520,.25,.06,'sawtooth');this.updateUI();
@@ -165,7 +168,7 @@ class Game {
   setBallSpeed(speed){const current=this.ballSpeed();if(current<1)return;this.ball.vx*=speed/current;this.ball.vy*=speed/current}
   dropBall(){
     this.lives--;this.resetCombo();this.addParticles(this.ball.x,CFG.bottom-20,22,'#f9a4d2');beep(170,.25,.07,'triangle');
-    this.drops=[];this.timers.wide=0;this.paddle.w=CFG.paddleW;
+    this.drops=[];this.timers.wide=0;this.paddle.w=CFG.paddleW;this.shieldCharges=0;
     if(this.lives<=0){this.end('lost');return}
     this.resetBall();this.setState('ready');this.updateUI();
   }
@@ -184,25 +187,48 @@ class Game {
   }
   updateBest(){if(this.score>this.best){this.best=this.score;safeSaveBest(this.best)}}
   hitBrick(brick,index){
-    if(brick.lock>0)return false;
-    brick.lock=.11;brick.hp--;this.bricksDirty=true;
+    // Resolve the current index: area damage may have removed neighbouring bricks.
+    const actualIndex=this.bricks.indexOf(brick);
+    if(actualIndex<0||brick.lock>0)return false;
+    brick.lock=.11;brick.hp--;this.bricksDirty=true;this.runStats.hits++;
     const multiplier=this.registerHit();
-    this.addParticles(this.ball.x,this.ball.y,7,brick.type==='core'?'#ff8bd9':brick.type==='armor'?'#ffe2a3':'#69e4ff');
+    this.addParticles(this.ball.x,this.ball.y,7,brick.type==='core'?'#ff8bd9':brick.type==='armor'?'#ffe2a3':brick.type==='blast'?'#ffad72':'#69e4ff');
     if(brick.hp<=0){
-      this.bricks.splice(index,1);
-      const gain=brick.type==='core'?24:brick.type==='armor'?18:12;
-      this.score+=(brick.type==='core'?240:brick.type==='armor'?180:100)*(this.level+1)*multiplier;
+      this.bricks.splice(actualIndex,1);
+      this.runStats.broken++;
+      const gain=brick.type==='core'?24:brick.type==='armor'?18:brick.type==='blast'?20:12;
+      const points=brick.type==='core'?240:brick.type==='armor'?180:brick.type==='blast'?160:100;
+      this.score+=points*(this.level+1)*multiplier;
       this.energy=clamp(this.energy+gain,0,100);
       this.maybeDrop(brick);
-      beep(brick.type==='core'?620:480,.07,.025,'square');
+      if(brick.type==='blast')this.blastNeighbors(brick);
+      beep(brick.type==='core'?620:brick.type==='blast'?740:480,.07,.025,'square');
       this.updateBest();
       if(this.bricks.length===0)this.completeLevel();
-    } else {this.score+=35*multiplier;beep(290,.055,.028,'triangle')}
+    }else{this.score+=35*multiplier;beep(290,.055,.028,'triangle')}
     this.updateUI();return true;
+  }
+  blastNeighbors(source){
+    // A blast removes one HP from orthogonally adjacent bricks. It never
+    // recursively detonates another blast brick or grants extra combo hits.
+    for(const target of [...this.bricks]){
+      if(Math.abs(target.row-source.row)+Math.abs(target.col-source.col)!==1)continue;
+      const index=this.bricks.indexOf(target);
+      if(index<0)continue;
+      target.hp=Math.max(0,target.hp-1);
+      target.lock=0;this.bricksDirty=true;
+      this.addParticles(target.x+target.w/2,target.y+target.h/2,5,'#ffb775');
+      if(target.hp===0){
+        this.bricks.splice(index,1);this.runStats.broken++;
+        this.score+=60*(this.level+1);this.energy=clamp(this.energy+6,0,100);
+      }
+    }
+    this.flash=Math.max(this.flash,.16);
+    this.addParticles(source.x+source.w/2,source.y+source.h/2,20,'#ffb775');
   }
   maybeDrop(brick){
     if(Math.random()>LEVELS[this.level].dropChance)return;
-    const t=Math.random(),type=t<.49?'wide':t<.91?'slow':'life';
+    const t=Math.random(),type=t<.43?'wide':t<.79?'slow':t<.95?'shield':'life';
     this.drops.push({x:brick.x+brick.w/2,y:brick.y+brick.h/2,vy:115,type,spin:0});
   }
   applyDrop(type){
@@ -212,6 +238,7 @@ class Game {
       this.timers.slow=CFG.slowDuration;
     }
     if(type==='life')this.lives=Math.min(5,this.lives+1);
+    if(type==='shield')this.shieldCharges=1;
     this.score+=75;this.updateBest();this.addParticles(this.paddle.x,this.paddle.y,12,'#ffc477');beep(850,.13,.05);
     this.updateUI();
   }
@@ -225,6 +252,7 @@ class Game {
     // A pause freezes both simulation and particles; only resumed play advances time.
     if(this.state==='paused')return;
     this.time+=dt;this.frame++;
+    if(this.state==='playing')this.runStats.seconds+=dt;
     if(this.comboHits>0&&this.time>this.comboUntil)this.resetCombo();
     if(this.flash>0)this.flash=Math.max(0,this.flash-dt);
     for(let i=this.particles.length-1;i>=0;i--){const p=this.particles[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=125*dt;p.life-=dt;if(p.life<=0)this.particles.splice(i,1)}
@@ -275,7 +303,14 @@ class Game {
     if(b.x-b.r<CFG.left){b.x=CFG.left+b.r;b.vx=Math.abs(b.vx);beep(390,.035,.017)}
     if(b.x+b.r>CFG.right){b.x=CFG.right-b.r;b.vx=-Math.abs(b.vx);beep(390,.035,.017)}
     if(b.y-b.r<CFG.top){b.y=CFG.top+b.r;b.vy=Math.abs(b.vy);beep(390,.035,.017)}
-    if(b.y-b.r>CFG.bottom){this.dropBall();return}
+    if(b.y-b.r>CFG.bottom){
+      if(this.shieldCharges>0){
+        this.shieldCharges=0;this.runStats.barriers++;this.resetCombo();
+        b.y=this.paddle.y-b.r-4;b.vy=-Math.max(80,Math.abs(b.vy));
+        this.flash=.25;this.addParticles(b.x,CFG.bottom-12,18,'#87ffcf');
+        beep(720,.12,.04);this.updateUI();
+      }else{this.dropBall();return}
+    }
     if(b.vy>0&&b.y+b.r>=this.paddle.y&&prevY+b.r<=this.paddle.y+5&&Math.abs(b.x-this.paddle.x)<=this.paddle.w/2+b.r){
       b.y=this.paddle.y-b.r-1;
       const relative=clamp((b.x-this.paddle.x)/(this.paddle.w/2),-.94,.94),speed=clamp(this.ballSpeed()*1.017,this.levelSpeed(),CFG.maxSpeed);
@@ -317,13 +352,18 @@ class Game {
     }
     if(this.state==='playing')this.stabilizeBallAngle();
   }
+  statsSummary(){
+    return 'Время: '+Math.floor(this.runStats.seconds)+' с · Попадания: '+this.runStats.hits+
+      ' · Разрушено: '+this.runStats.broken+' · Импульсы: '+this.runStats.pulses+
+      ' · Лучшая серия: '+this.runStats.maxCombo+' · Спасения: '+this.runStats.barriers;
+  }
   overlayContent(kind){
     const common={
       intro:{icon:'✦',kicker:'НОВАЯ АРКАДА',title:'ИМПУЛЬС',text:'Разрушай блоки, собирай усиления и заряжай пробивной импульс. Три сектора ждут тебя.',action:'НАЧАТЬ ИГРУ',small:'На телефоне двигай платформу пальцем по полю. На ПК — мышь или стрелки.'},
       pause:{icon:'Ⅱ',kicker:'ИГРА ПРИОСТАНОВЛЕНА',title:'ПАУЗА',text:'Шар ждёт твоего возвращения.',action:'ПРОДОЛЖИТЬ',small:'Клавиша P — пауза / продолжить.'},
       between:{icon:'✧',kicker:'СЕКТОР ОЧИЩЕН',title:'ОТЛИЧНАЯ РАБОТА',text:`Следующий сектор: ${LEVELS[this.level+1]?.name ?? 'ФИНАЛ'}. Бонус за жизни: +${this.lastSectorBonus}. Лучшая серия: ${this.lastSectorBestCombo}. Жизни и счёт сохраняются.`,action:'СЛЕДУЮЩИЙ СЕКТОР',small:'Впереди более прочные блоки.'},
-      won:{icon:'★',kicker:'МИССИЯ ВЫПОЛНЕНА',title:'ТРИ СЕКТОРА ПРОЙДЕНЫ',text:`Финальный счёт: ${this.score.toLocaleString('ru-RU')}. Бонус финального сектора: +${this.lastSectorBonus}. Твой рекорд: ${this.best.toLocaleString('ru-RU')}.`,action:'СЫГРАТЬ СНОВА',small:'Это только первая версия игры. Новые механики ещё впереди.'},
-      lost:{icon:'✕',kicker:'ПОПЫТКА ЗАВЕРШЕНА',title:'ИГРА ОКОНЧЕНА',text:`Ты набрал ${this.score.toLocaleString('ru-RU')} очков. Попробуй ещё раз!`,action:'НОВАЯ ПОПЫТКА',small:'Старайся поймать бонусы: зелёный расширяет платформу, синий замедляет шар.'}
+      won:{icon:'★',kicker:'МИССИЯ ВЫПОЛНЕНА',title:'ТРИ СЕКТОРА ПРОЙДЕНЫ',text:`Финальный счёт: ${this.score.toLocaleString('ru-RU')}. Бонус финального сектора: +${this.lastSectorBonus}. Твой рекорд: ${this.best.toLocaleString('ru-RU')}.`,action:'СЫГРАТЬ СНОВА',small:this.statsSummary()},
+      lost:{icon:'✕',kicker:'ПОПЫТКА ЗАВЕРШЕНА',title:'ИГРА ОКОНЧЕНА',text:`Ты набрал ${this.score.toLocaleString('ru-RU')} очков. Попробуй ещё раз!`,action:'НОВАЯ ПОПЫТКА',small:this.statsSummary()}
     }[kind];
     return `<div class="overlay-icon" aria-hidden="true">${common.icon}</div><div class="overlay-kicker">${common.kicker}</div><h2>${common.title}</h2><p>${common.text}</p><button type="button" class="overlay-action" id="overlayAction">${common.action}</button><div class="overlay-small">${common.small}</div>`;
   }
@@ -365,7 +405,7 @@ class Game {
       this.drawBricks(ctx);
       this.bricksDirty=false;
     }
-    this.drawDrops();this.drawParticles();this.drawPaddle();this.drawBall();this.drawGameplayStatus();
+    this.drawDrops();this.drawParticles();this.drawShield();this.drawPaddle();this.drawBall();this.drawGameplayStatus();
     if(this.flash>0){ctx.fillStyle=`rgba(252,114,201,${Math.min(.2,this.flash*.4)})`;ctx.fillRect(0,0,w,h)}
     // Opt-in on-device FPS overlay: ?fps=1 (no clutter during normal play).
     if(this.profileEnabled){
@@ -387,6 +427,7 @@ class Game {
     if(this.timers.wide>0)effects.push(`ПЛАТФОРМА ${Math.ceil(this.timers.wide)}с`);
     if(this.timers.slow>0)effects.push(`ЗАМЕДЛ. ${Math.ceil(this.timers.slow)}с`);
     if(this.timers.pulse>0)effects.push(`ИМПУЛЬС ${Math.ceil(this.timers.pulse)}с`);
+    if(this.shieldCharges>0)effects.push('БАРЬЕР ×1');
     if(effects.length){
       ctx.fillStyle='#a4f5ed';ctx.font='11px system-ui';
       ctx.fillText(effects.join(' · '),CFG.left+9,94);
@@ -412,6 +453,7 @@ class Game {
     let c1,c2,stroke;
     if(brick.type==='core'){c1='#ff7abb';c2='#a541a5';stroke='#ffb7dd'}
     else if(brick.type==='armor'){c1='#e4ba79';c2='#825e6d';stroke='#fff0a5'}
+    else if(brick.type==='blast'){c1='#ffc07a';c2='#cc5a5c';stroke='#ffe2ab'}
     else {const colors=[['#6bcdff','#357cb3'],['#72dcf3','#346da1'],['#a28ff6','#575bba'],['#79bdf4','#3d70a7'],['#87eee3','#3b9ea9'],['#d1a3f6','#8559b9'],['#6ccde7','#4588ae']];[c1,c2]=colors[brick.row%colors.length];stroke=c1}
     if(brick.maxHp===2&&brick.hp===1){c1='#927e91';c2='#6b647a'}
     const g=target.createLinearGradient(brick.x,brick.y,brick.x,brick.y+brick.h);g.addColorStop(0,c1);g.addColorStop(1,c2);
@@ -419,12 +461,22 @@ class Game {
     roundRect(brick.x,brick.y,brick.w,brick.h,5,g,stroke,target);target.shadowBlur=0;
     target.fillStyle='#ffffff45';target.fillRect(brick.x+7,brick.y+4,brick.w-14,2);
     if(brick.type==='armor'){target.fillStyle='#19213c98';target.font='bold 14px system-ui';target.textAlign='center';target.fillText(brick.hp===2?'◆':'◇',brick.x+brick.w/2,brick.y+18)}
+    if(brick.type==='blast'){target.fillStyle='#fff6dd';target.font='bold 17px system-ui';target.textAlign='center';target.fillText('✶',brick.x+brick.w/2,brick.y+18)}
     if(brick.type==='core'){target.fillStyle='#fff2ff';target.beginPath();target.moveTo(brick.x+brick.w/2,brick.y+5);target.lineTo(brick.x+brick.w/2+8,brick.y+brick.h/2);target.lineTo(brick.x+brick.w/2,brick.y+brick.h-5);target.lineTo(brick.x+brick.w/2-8,brick.y+brick.h/2);target.fill()}
   }}
-  drawDrops(){for(const d of this.drops){const color=d.type==='wide'?'#6bf9bc':d.type==='slow'?'#81c6ff':'#ff83a9';
+  drawDrops(){for(const d of this.drops){
+    const color=d.type==='wide'?'#6bf9bc':d.type==='slow'?'#81c6ff':d.type==='shield'?'#88ffd6':'#ff83a9';
     ctx.shadowColor=color;ctx.shadowBlur=14;roundRect(d.x-13,d.y-13,26,26,8,'#192643',color);ctx.shadowBlur=0;
-    ctx.fillStyle=color;ctx.font='bold 17px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(d.type==='wide'?'↔':d.type==='slow'?'◷':'♥',d.x,d.y+1);ctx.textBaseline='alphabetic';
+    ctx.fillStyle=color;ctx.font='bold 17px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(d.type==='wide'?'↔':d.type==='slow'?'◷':d.type==='shield'?'⬡':'♥',d.x,d.y+1);
+    ctx.textBaseline='alphabetic';
   }}
+  drawShield(){
+    if(this.shieldCharges<=0)return;
+    ctx.strokeStyle='#88ffd6';ctx.globalAlpha=.8;ctx.lineWidth=3;
+    ctx.beginPath();ctx.moveTo(CFG.left+14,CFG.bottom-14);ctx.lineTo(CFG.right-14,CFG.bottom-14);ctx.stroke();
+    ctx.globalAlpha=1;ctx.lineWidth=1;
+  }
   drawParticles(){for(const p of this.particles){ctx.globalAlpha=clamp(p.life/.6,0,1);ctx.fillStyle=p.color;ctx.fillRect(p.x,p.y,p.r,p.r)}ctx.globalAlpha=1}
 
   paintPaddle(target,w,wide,left,y){
@@ -565,4 +617,4 @@ function loop(now){
 }
 requestAnimationFrame(loop);
 // Expose a read-only diagnostic snapshot for automated smoke tests, no gameplay cheats.
-window.__impulseDebug=()=>({state:game.state,score:game.score,level:game.level,lives:game.lives,bricks:game.bricks.length,energy:game.energy,combo:game.comboHits,fps:game.performance.fps,maxFrameMs:game.performance.maxFrameMs,avgUpdateMs:game.performance.avgUpdateMs,avgDrawMs:game.performance.avgDrawMs,spritePaintCount:game.spritePaintCount});
+window.__impulseDebug=()=>({state:game.state,score:game.score,level:game.level,lives:game.lives,bricks:game.bricks.length,energy:game.energy,combo:game.comboHits,fps:game.performance.fps,maxFrameMs:game.performance.maxFrameMs,avgUpdateMs:game.performance.avgUpdateMs,avgDrawMs:game.performance.avgDrawMs,spritePaintCount:game.spritePaintCount,shield:game.shieldCharges,stats:{...game.runStats}});
