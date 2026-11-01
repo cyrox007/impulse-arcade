@@ -17,10 +17,10 @@ const CFG = Object.freeze({
 
 const LEVELS = [
   {name:'ПЕРВЫЙ КОНТАКТ', speedScale:1, dropChance:.17, rows:['111111','111111','11CC11','1....1','..11..']},
-  {name:'НЕОНОВЫЙ ДОЖДЬ',speedScale:1.06,dropChance:.18,rows:['212212','121X21','1PCC11','121121','.1111.','..22..','......','..M...','......','...M..']},
-  {name:'ЯДРО СТАНЦИИ', speedScale:1.12, dropChance:.19, rows:['222222','2C1XC2','21E112','22CC22','121121','1X..P1','1....1','......','..M...','......','...M..']},
-  {name:'ПРИЗРАЧНЫЙ КОРИДОР',speedScale:1.16,dropChance:.20,rows:['2P12P2','11X111','C21E2C','212212','1P11P1','..22..','......','......','..M...','......','...M..']},
-  {name:'СЕРДЦЕ РЕАКТОРА',speedScale:1.20,dropChance:.21,rows:['C2E2C2','221X22','1PCCP1','2X22X2','121121','..EE..','......','......','..M...','......','...M..']}
+  {name:'НЕОНОВЫЙ ДОЖДЬ',speedScale:1.06,dropChance:.18,rows:['212212','121X21','1PCC11','121121','U1111D','..22..','..M.M.']},
+  {name:'ЯДРО СТАНЦИИ', speedScale:1.12, dropChance:.19, rows:['222222','2C1XC2','21E112','22CC22','121121','1X..P1','1.M.M1']},
+  {name:'ПРИЗРАЧНЫЙ КОРИДОР',speedScale:1.16,dropChance:.20,rows:['2P12P2','11X111','C21E2C','212212','1P11P1','..22..','.M..M.']},
+  {name:'СЕРДЦЕ РЕАКТОРА',speedScale:1.20,dropChance:.21,rows:['C2E2C2','221X22','1PCCP1','2X22X2','121121','..EE..','.M..M.']}
 ];
 
 const canvas = document.getElementById('game');
@@ -75,7 +75,7 @@ function safeSaveBest(value){try{localStorage.setItem(CFG.storageKey,String(valu
 class Game {
   constructor(){
     this.frame=0;this.state='menu';this.score=0;this.best=safeLoadBest();this.lives=3;this.level=0;
-    this.energy=0;this.bricks=[];this.drops=[];this.particles=[];this.waves=[];this.boss=null;this.sectorPhase='bricks';this.keys={};this.activePointerId=null;
+    this.energy=0;this.bricks=[];this.drops=[];this.particles=[];this.waves=[];this.enemyShots=[];this.boss=null;this.sectorPhase='bricks';this.keys={};this.activePointerId=null;
     this.reducedMotion=Boolean(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     this.paddle={x:CFG.width/2,w:CFG.paddleW,y:CFG.paddleY,h:CFG.paddleH};this.targetX=this.paddle.x;
     this.ball={x:CFG.width/2,y:CFG.paddleY-14,vx:0,vy:0,r:CFG.ballRadius,trail:[]};this.extraBalls=[];
@@ -129,28 +129,29 @@ class Game {
     for(let r=0;r<rows.length;r++)for(let c=0;c<rows[r].length;c++){
       const code=rows[r][c];if(code==='.')continue;
       this.bricks.push({x:CFG.brickStartX+c*(CFG.brickW+CFG.brickGapX),y:CFG.brickStartY+r*(CFG.brickH+CFG.brickGapY),w:CFG.brickW,h:CFG.brickH,
-         hp:code==='2'?2:1,maxHp:code==='2'?2:1,type:code==='C'?'core':code==='2'?'armor':code==='X'?'blast':code==='M'?'moving':code==='E'?'charge':code==='P'?'prism':'normal',
-        row:r,col:c,lock:0,
+         hp:code==='2'?2:1,maxHp:code==='2'?2:1,type:code==='C'?'core':code==='2'?'armor':code==='X'?'blast':code==='M'?'moving':code==='E'?'charge':code==='P'?'prism':'UDLR'.includes(code)?'directional':'normal',
+        row:r,col:c,lock:0,face:'UDLR'.includes(code)?code:null,
         anchorX:CFG.brickStartX+c*(CFG.brickW+CFG.brickGapX),
         anchorY:CFG.brickStartY+r*(CFG.brickH+CFG.brickGapY),
-        path:code==='M'?(this.level>=2&&r===10?'vertical':this.level>=2&&r===8?'sine':'horizontal'):null,
+        path:code==='M'?'roam':null,
         minX:CFG.brickStartX,maxX:CFG.right-CFG.brickW-12,
         minY:CFG.brickStartY+r*(CFG.brickH+CFG.brickGapY)-10,
         maxY:CFG.brickStartY+r*(CFG.brickH+CFG.brickGapY)+86,
-        vx:code==='M'?(r%4===3?112:-124):0,
-        vy:code==='M'?95:0});
+        vx:code==='M'?(c%2?80:-90):0,
+        vy:code==='M'?(c%2?-60:-65):0,
+        directionClock:code==='M'?1.2+.17*c:0});
     }
-    this.boss=null;this.sectorPhase='bricks';this.bricksDirty=true;
+    this.boss=null;this.enemyShots=[];this.sectorPhase='bricks';this.bricksDirty=true;
   }
   startNewGame(){
     this.score=0;this.lives=3;this.energy=0;this.level=0;this.timers={pulse:0,wide:0,slow:0,magnet:0};
     this.resetCombo();this.bestComboInSector=0;this.lastSectorBonus=0;this.lastSectorBestCombo=0;
     this.runStats={seconds:0,hits:0,broken:0,pulses:0,maxCombo:0,barriers:0,splits:0};this.shieldCharges=0;
     this.paddle.w=CFG.paddleW;this.paddle.x=CFG.width/2;this.targetX=this.paddle.x;
-    this.drops=[];this.particles=[];this.waves=[];this.startLevel();
+    this.drops=[];this.particles=[];this.waves=[];this.enemyShots=[];this.startLevel();
   }
   startLevel(){
-    this.makeBricks();this.drops=[];this.waves=[];this.paddle.w=CFG.paddleW;this.timers.wide=0;this.shieldCharges=0;
+    this.makeBricks();this.drops=[];this.waves=[];this.enemyShots=[];this.paddle.w=CFG.paddleW;this.timers.wide=0;this.shieldCharges=0;
     this.resetCombo();this.bestComboInSector=0;
     this.resetBall();this.setState('ready');this.hideOverlay();this.flash=0;this.updateUI();
   }
@@ -243,7 +244,7 @@ class Game {
   beginGuardian(){
     if(this.sectorPhase!=='bricks'||this.level!==2)return;
     this.sectorPhase='guardian';
-    this.boss={kind:'guardian',x:CFG.width/2-80,y:138,w:160,h:66,hp:6,maxHp:6,lock:0,phaseTime:0,hitFlash:0};
+    this.boss={kind:'guardian',x:CFG.width/2-80,y:138,w:160,h:66,hp:6,maxHp:6,lock:0,phaseTime:0,hitFlash:0,vx:72,minX:CFG.left+24,maxX:CFG.right-24-160,shotClock:0};
     this.addWave(CFG.width/2,170,'#f6acff',90,.4,3);
     this.addParticles(CFG.width/2,170,28,'#df96ff');
     beep(280,.17,.04,'sawtooth');this.updateUI();
@@ -253,7 +254,7 @@ class Game {
     this.sectorPhase='reactor';
     this.boss={kind:'reactor',x:CFG.width/2-94,y:139,w:188,h:76,
       hp:6,maxHp:6,lock:0,phaseTime:0,hitFlash:0,vx:65,
-      minX:CFG.left+64,maxX:CFG.right-64-188,
+      minX:CFG.left+64,maxX:CFG.right-64-188,shotClock:0,
       nodes:[{offset:36,hp:2},{offset:94,hp:2},{offset:152,hp:2}]};
     this.addWave(CFG.width/2,179,'#f5b37b',105,.4,3);
     this.addParticles(CFG.width/2,179,28,'#ffc690',{shard:true});
