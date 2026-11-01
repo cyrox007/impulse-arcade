@@ -16,9 +16,9 @@ const CFG = Object.freeze({
 });
 
 const LEVELS = [
-  {name:'ПЕРВЫЙ КОНТАКТ', rows:['111111','111111','11CC11','1....1','..11..']},
-  {name:'НЕОНОВЫЙ ДОЖДЬ',rows:['212212','121121','11CC11','121121','.1111.','..22..']},
-  {name:'ЯДРО СТАНЦИИ', rows:['222222','2C11C2','211112','22CC22','121121','11..11','1....1']}
+  {name:'ПЕРВЫЙ КОНТАКТ', speedScale:1, dropChance:.17, rows:['111111','111111','11CC11','1....1','..11..']},
+  {name:'НЕОНОВЫЙ ДОЖДЬ',speedScale:1.06,dropChance:.18,rows:['212212','121121','11CC11','121121','.1111.','..22..']},
+  {name:'ЯДРО СТАНЦИИ', speedScale:1.12, dropChance:.19, rows:['222222','2C11C2','211112','22CC22','121121','11..11','1....1']}
 ];
 
 const canvas = document.getElementById('game');
@@ -96,8 +96,9 @@ class Game {
     if(this.state==='between'){this.level++;this.startLevel();return}
     if(this.state==='paused'){this.resume();return}
     if(this.state!=='ready')return;
+    const speed=this.levelSpeed();
     this.ball.vx=random(-110,110);
-    this.ball.vy=-Math.sqrt(CFG.initialSpeed**2-this.ball.vx**2);
+    this.ball.vy=-Math.sqrt(speed**2-this.ball.vx**2);
     this.setState('playing');this.hideOverlay();beep(430,.09);
   }
   togglePause(){
@@ -111,9 +112,10 @@ class Game {
     if(this.state!=='playing'||this.energy<100||this.timers.pulse>0)return;
     this.energy=0;this.timers.pulse=CFG.pulseDuration;this.flash=.36;
     this.addParticles(this.ball.x,this.ball.y,28,'#ff85d9');
-    this.setBallSpeed(clamp(this.ballSpeed()*1.13,CFG.initialSpeed,CFG.maxSpeed));
+    this.setBallSpeed(clamp(this.ballSpeed()*1.13,this.levelSpeed(),CFG.maxSpeed));
     beep(520,.25,.06,'sawtooth');this.updateUI();
   }
+  levelSpeed(){return Math.min(CFG.maxSpeed,CFG.initialSpeed*LEVELS[this.level].speedScale)}
   ballSpeed(){return Math.hypot(this.ball.vx,this.ball.vy)}
   setBallSpeed(speed){const current=this.ballSpeed();if(current<1)return;this.ball.vx*=speed/current;this.ball.vy*=speed/current}
   dropBall(){
@@ -149,7 +151,7 @@ class Game {
     this.updateUI();return true;
   }
   maybeDrop(brick){
-    if(Math.random()>.17)return;
+    if(Math.random()>LEVELS[this.level].dropChance)return;
     const t=Math.random(),type=t<.49?'wide':t<.91?'slow':'life';
     this.drops.push({x:brick.x+brick.w/2,y:brick.y+brick.h/2,vy:115,type,spin:0});
   }
@@ -165,6 +167,8 @@ class Game {
   }
   addParticles(x,y,n,color){for(let i=0;i<n;i++)this.particles.push({x,y,vx:random(-170,170),vy:random(-180,160),life:random(.3,.75),maxLife:.75,color,r:random(1.1,3.4)})}
   update(dt){
+    // A pause freezes both simulation and particles; only resumed play advances time.
+    if(this.state==='paused')return;
     this.time+=dt;this.frame++;
     if(this.flash>0)this.flash=Math.max(0,this.flash-dt);
     for(let i=this.particles.length-1;i>=0;i--){const p=this.particles[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=125*dt;p.life-=dt;if(p.life<=0)this.particles.splice(i,1)}
@@ -218,7 +222,7 @@ class Game {
     if(b.y-b.r>CFG.bottom){this.dropBall();return}
     if(b.vy>0&&b.y+b.r>=this.paddle.y&&prevY+b.r<=this.paddle.y+5&&Math.abs(b.x-this.paddle.x)<=this.paddle.w/2+b.r){
       b.y=this.paddle.y-b.r-1;
-      const relative=clamp((b.x-this.paddle.x)/(this.paddle.w/2),-.94,.94),speed=clamp(this.ballSpeed()*1.017,CFG.initialSpeed,CFG.maxSpeed);
+      const relative=clamp((b.x-this.paddle.x)/(this.paddle.w/2),-.94,.94),speed=clamp(this.ballSpeed()*1.017,this.levelSpeed(),CFG.maxSpeed);
       let angle=relative*1.11;
       // Centre hits should not lock the ball into a vertical loop.
       if(Math.abs(angle)<.12)angle=(b.vx<0?-1:1)*.12;
