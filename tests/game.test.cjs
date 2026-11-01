@@ -177,8 +177,8 @@ test('ограничение положения платформы и захва
 test('статический сайт не зависит от внешних JS/CSS и имеет мета-описание', () => {
   const html = readFileSync(path.join(root,'index.html'),'utf8');
   assert.match(html, /name="description"/);
-  assert.match(html, /src="game\.js\?v=gameplay-05-20261101"/);
-  assert.match(html, /href="style\.css\?v=gameplay-05-20261101"/);
+  assert.match(html, /src="game\.js\?v=gameplay-051-20261101"/);
+  assert.match(html, /href="style\.css\?v=gameplay-051-20261101"/);
   assert.doesNotMatch(html, /<script[^>]*src="https?:\/\//i);
   assert.doesNotMatch(html, /<link[^>]*href="https?:\/\//i);
 });
@@ -427,7 +427,7 @@ test('perf: частицы ограничены и диагностически�
 
 test('perf: sprites мяча и платформы создаются однократно и переиспользуются', () => {
   const {game,CFG,gradientCalls}=createEnvironment();
-  assert.equal(game.spritePaintCount,4);
+  assert.equal(game.spritePaintCount,6);
   assert.ok(game.sprites.paddleNormal && game.sprites.paddleWide);
   assert.ok(game.sprites.ballNormal && game.sprites.ballPulse);
   assert.equal(game.sprites.ballNormal.width,CFG.ballRadius*2+72);
@@ -778,7 +778,7 @@ test('0.5: в секторах 2–3 подвижные блоки не меня
   assert.ok(movers.some((b,i)=>b.x!==positions[i]));
   assert.doesNotThrow(()=>game.drawMovingBricks());
   game.level=2;game.startLevel();
-  assert.equal(game.bricks.filter(b=>b.type==='moving').length,1);
+  assert.equal(game.bricks.filter(b=>b.type==='moving').length,2);
 });
 
 test('0.5: подвижная цель отражается от границы и не проходит сквозь соседей',()=>{
@@ -793,9 +793,9 @@ test('0.5: подвижная цель отражается от границы 
     }
   }
   b.x=b.maxX-.2;b.vx=36;game.updateMovingBricks(.01);
-  assert.equal(b.x,b.maxX);assert.ok(b.vx<0);
+  assert.ok(Math.abs(b.x-(b.maxX-.16))<.00001);assert.ok(b.vx<0);
   b.x=b.minX+.2;b.vx=-36;game.updateMovingBricks(.01);
-  assert.equal(b.x,b.minX);assert.ok(b.vx>0);
+  assert.ok(Math.abs(b.x-(b.minX+.16))<.00001);assert.ok(b.vx>0);
 });
 
 test('0.5: удар по движущемуся блоку не пересобирает кэш кирпичей',()=>{
@@ -879,4 +879,106 @@ test('0.5: импульс не пробивает защищённого Стр�
   game.ball.vy=-game.levelSpeed();
   game.moveBall(.004);
   assert.equal(b.hp,5);
+});
+
+test('0.5.1: кирпичи патрулируют широкие горизонтальные полосы, а не дрожат',()=>{
+  const {game}=createEnvironment();game.launch();game.level=1;game.startLevel();
+  const movers=game.bricks.filter(b=>b.type==='moving');
+  assert.equal(movers.length,2);
+  for(const b of movers) {
+    assert.equal(b.path,'horizontal');
+    assert.ok(b.maxX-b.minX>=300);
+    const start=b.x;
+    for(let i=0;i<120;i++)game.updateMovingBricks(1/60);
+    assert.ok(Math.abs(b.x-start)>100,'patrol should visibly travel more than 100px');
+    assert.ok(b.x>=b.minX&&b.x<=b.maxX);
+  }
+  assert.notEqual(Math.sign(movers[0].vx),Math.sign(movers[1].vx));
+});
+
+test('0.5.1: третий сектор включает горизонтальную и вертикальную траектории',()=>{
+  const {game,CFG}=createEnvironment();game.launch();game.level=2;game.startLevel();
+  const movers=game.bricks.filter(b=>b.type==='moving');
+  assert.equal(movers.length,2);
+  const sine=movers.find(b=>b.path==='sine'),vertical=movers.find(b=>b.path==='vertical');
+  assert.ok(sine&&vertical);
+  const originalY=sine.y,originalX=vertical.x,originalVerticalY=vertical.y;
+  let minY=Infinity,maxY=-Infinity,minV=Infinity,maxV=-Infinity;
+  for(let i=0;i<280;i++){
+    game.updateMovingBricks(1/60);
+    minY=Math.min(minY,sine.y);maxY=Math.max(maxY,sine.y);
+    minV=Math.min(minV,vertical.y);maxV=Math.max(maxV,vertical.y);
+    assert.ok(sine.x>=CFG.left&&sine.x+sine.w<=CFG.right);
+    assert.ok(vertical.y+vertical.h<game.paddle.y);
+  }
+  assert.ok(maxY-minY>15,'sine lane must vary vertically');
+  assert.ok(maxV-minV>85,'vertical lane must travel ~90px');
+  assert.equal(vertical.x,originalX);
+  assert.notEqual(vertical.y,originalVerticalY);
+  assert.notEqual(sine.y,originalY);
+});
+
+test('0.5.1: движение независимо от частоты кадров и замораживается паузой',()=>{
+  function sample(fps) {
+    const {game}=createEnvironment();game.launch();game.level=1;game.startLevel();game.launch();
+    const b=game.bricks.find(b=>b.type==='moving');
+    for(let i=0;i<fps*2;i++)game.updateMovingBricks(1/fps);
+    return {x:b.x,vx:b.vx};
+  }
+  const a=sample(30),b=sample(60),c=sample(120);
+  assert.ok(Math.abs(a.x-b.x)<.00001&&Math.abs(b.x-c.x)<.00001);
+  assert.equal(a.vx,b.vx);assert.equal(b.vx,c.vx);
+  const {game}=createEnvironment();game.launch();game.level=1;game.startLevel();game.launch();
+  const mover=game.bricks.find(b=>b.type==='moving');
+  game.update(.016);const x=mover.x;
+  game.togglePause();game.update(.5);
+  assert.equal(mover.x,x);
+});
+
+test('0.5.1: два облика Стража кэшируются, рендер не пересоздаёт градиенты',()=>{
+  const {game,gradientCalls}=createEnvironment();
+  assert.ok(game.sprites.guardianOpen&&game.sprites.guardianShield);
+  assert.equal(game.sprites.guardianOpen.width,224);
+  assert.equal(game.sprites.guardianShield.height,136);
+  assert.equal(game.spritePaintCount,6);
+  game.launch();game.level=2;game.startLevel();game.launch();
+  game.bricks=[];game.checkStageCompletion();
+  game.draw();const paints=game.spritePaintCount;
+  const gradients={...gradientCalls};
+  for(let n=0;n<100;n++)game.draw();
+  game.boss.phaseTime=2.8;
+  for(let n=0;n<100;n++)game.draw();
+  assert.equal(game.spritePaintCount,paints);
+  assert.deepEqual(gradientCalls,gradients,'guardian art must reuse sprites');
+});
+
+test('0.5.1: Страж показывает попадание и сохраняет боевые правила',()=>{
+  const {game}=createEnvironment();
+  game.launch();game.level=2;game.startLevel();game.launch();
+  game.bricks=[];game.checkStageCompletion();
+  const b=game.boss;assert.equal(b.hp,6);
+  b.phaseTime=0;
+  assert.equal(game.guardianVulnerable(),true);
+  game.ball.x=b.x+b.w/2;game.ball.y=b.y+b.h+game.ball.r+.4;
+  game.ball.vx=0;game.ball.vy=-game.levelSpeed();
+  game.moveBall(.004);
+  assert.equal(b.hp,5);assert.ok(b.hitFlash>0);
+  game.update(.12);assert.ok(b.hitFlash<.22);
+  b.phaseTime=2.7;b.lock=0;
+  const score=game.score;
+  game.ball.x=b.x+b.w/2;game.ball.y=b.y+b.h+game.ball.r+.4;
+  game.ball.vx=0;game.ball.vy=-game.levelSpeed();
+  game.moveBall(.004);
+  assert.equal(b.hp,5);assert.equal(game.score,score);
+  assert.doesNotThrow(()=>game.drawGuardian());
+});
+
+test('0.5.1: новые маршруты не требуют перерисовывать статический кэш',()=>{
+  const {game,gradientCalls}=createEnvironment();
+  game.launch();game.level=2;game.startLevel();game.launch();game.draw();
+  const first=game.brickPaintCount,gradients={...gradientCalls};
+  for(let n=0;n<180;n++){game.updateMovingBricks(1/60);game.draw();}
+  assert.equal(game.brickPaintCount,first);
+  assert.deepEqual(gradientCalls,gradients);
+  assert.equal(game.bricksDirty,false);
 });
