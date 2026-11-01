@@ -93,7 +93,8 @@ class Game {
       ballNormal:this.makeBallSprite(false),
       ballPulse:this.makeBallSprite(true),
       guardianOpen:this.makeGuardianSprite(false),
-      guardianShield:this.makeGuardianSprite(true)
+      guardianShield:this.makeGuardianSprite(true),
+      reactor:this.makeReactorSprite()
     };
     this.profileEnabled=Boolean(window.location && /(?:\?|&)fps=1(?:&|$)/.test(window.location.search||''));
     this.performance={fps:0,maxFrameMs:0,avgUpdateMs:0,avgDrawMs:0,
@@ -834,8 +835,70 @@ class Game {
     this.spritePaintCount++;
     return layer.canvas;
   }
+  paintReactorSprite(target){
+    const poly=(points,fill,stroke)=>{
+      target.beginPath();target.moveTo(points[0][0],points[0][1]);
+      for(let i=1;i<points.length;i++)target.lineTo(points[i][0],points[i][1]);
+      target.closePath();target.fillStyle=fill;target.fill();
+      if(stroke){target.lineWidth=2;target.strokeStyle=stroke;target.stroke()}
+    };
+    // Cached once: wide reactor hull, three open targets, heavy fins and vents.
+    const glow=target.createRadialGradient(118,69,6,118,69,106);
+    glow.addColorStop(0,'#ff9f5866');glow.addColorStop(1,'#ff6e2000');
+    target.fillStyle=glow;target.fillRect(0,0,236,124);
+    poly([[4,58],[28,32],[64,35],[75,80],[43,111],[11,94]],'#482c43','#ffbd79');
+    poly([[232,58],[208,32],[172,35],[161,80],[193,111],[225,94]],'#482c43','#ffbd79');
+    poly([[36,51],[59,21],[177,21],[200,51],[188,99],[48,99]],'#1e3247','#ed9e6b');
+    poly([[67,28],[89,12],[147,12],[169,28],[157,67],[79,67]],'#50405d','#ffc084');
+    poly([[88,38],[118,25],[148,38],[141,59],[95,59]],'#8e4668','#ffbf8b');
+    target.fillStyle='#ffcf9d';target.fillRect(82,42,72,4);
+    target.fillStyle='#e98d6d';target.fillRect(68,72,100,4);
+    // Three mounting sockets: glowing node cores are drawn live, by HP.
+    for(const x of [60,118,176]){
+      target.fillStyle='#182b42';target.beginPath();target.arc(x,90,24,0,Math.PI*2);target.fill();
+      target.strokeStyle='#ffd0a0';target.lineWidth=3;target.beginPath();target.arc(x,90,24,0,Math.PI*2);target.stroke();
+    }
+  }
+  makeReactorSprite(){
+    const layer=createLayer(236,124);if(!layer)return null;
+    this.paintReactorSprite(layer.ctx);this.spritePaintCount++;
+    return layer.canvas;
+  }
+  drawReactor(){
+    const boss=this.boss;if(!boss||boss.kind!=='reactor')return;
+    const sprite=this.sprites.reactor;
+    if(sprite)ctx.drawImage(sprite,boss.x-24,boss.y-24);
+    else{
+      // Safe cheap fallback for missing offscreen canvas.
+      roundRect(boss.x,boss.y,boss.w,boss.h,12,'#27354c','#ffbc83');
+    }
+    for(const node of boss.nodes){
+      const x=boss.x+node.offset,y=boss.y+boss.h-10;
+      ctx.beginPath();ctx.arc(x,y,18,0,Math.PI*2);
+      ctx.fillStyle=node.hp===2?'#ffb662':node.hp===1?'#ff7485':'#233248';ctx.fill();
+      ctx.strokeStyle=node.hp?'#fff0c1':'#64758e';ctx.lineWidth=2;ctx.stroke();
+      if(node.hp>0){
+        ctx.fillStyle='#fff1cd';ctx.beginPath();ctx.arc(x,y,node.hp===2?7:5,0,Math.PI*2);ctx.fill();
+      }else{
+        ctx.strokeStyle='#6d788b';ctx.beginPath();ctx.moveTo(x-7,y-7);ctx.lineTo(x+7,y+7);
+        ctx.moveTo(x+7,y-7);ctx.lineTo(x-7,y+7);ctx.stroke();
+      }
+    }
+    ctx.textAlign='center';ctx.font='bold 12px system-ui';ctx.fillStyle='#ffd0ac';
+    ctx.fillText('РЕАКТОР · УЗЛЫ '+boss.nodes.filter(n=>n.hp>0).length+'/3',boss.x+boss.w/2,boss.y-43);
+    for(let i=0;i<boss.nodes.length;i++){
+      const x=boss.x+boss.w/2-52+i*39;
+      roundRect(x,boss.y-37,31,7,2,boss.nodes[i].hp===2?'#ffd08d':boss.nodes[i].hp===1?'#ff7c94':'#344252',null);
+    }
+    if(boss.hitFlash>0){
+      ctx.globalAlpha=Math.min(.6,boss.hitFlash*3);
+      ctx.fillStyle='#fff6d6';ctx.fillRect(boss.x+16,boss.y+7,boss.w-32,6);ctx.globalAlpha=1;
+    }
+    ctx.lineWidth=1;ctx.globalAlpha=1;
+  }
   drawGuardian(){
     const boss=this.boss;if(!boss)return;
+    if(boss.kind==='reactor'){this.drawReactor();return}
     const shielded=!this.guardianVulnerable(),cx=boss.x+boss.w/2,cy=boss.y+boss.h/2;
     const sprite=shielded?this.sprites.guardianShield:this.sprites.guardianOpen;
     if(sprite)ctx.drawImage(sprite,cx-112,cy-67);
