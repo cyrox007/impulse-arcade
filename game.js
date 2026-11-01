@@ -25,7 +25,7 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', {alpha:false});
 const ui = {
   score:document.getElementById('score'), best:document.getElementById('best'), lives:document.getElementById('lives'),
-  stage:document.getElementById('stageLabel'), overlay:document.getElementById('overlay'),
+  stage:document.getElementById('stageLabel'), compactSector:document.getElementById('compactSector'), overlay:document.getElementById('overlay'),
   charge:document.getElementById('chargeFill'), chargeText:document.getElementById('chargeText'), chargeBar:document.getElementById('chargeBar'),
   hint:document.getElementById('hint'), launch:document.getElementById('launchBtn'),launchLabel:document.getElementById('launchLabel'),
   pulse:document.getElementById('pulseBtn'),pulseLabel:document.getElementById('pulseLabel'),
@@ -275,6 +275,7 @@ class Game {
     ui.score.textContent=String(this.score).padStart(6,'0');ui.best.textContent=String(this.best).padStart(6,'0');
     ui.lives.textContent='♥ '.repeat(Math.max(0,this.lives)).trim()||'—';
     ui.stage.textContent=`СЕКТОР ${String(this.level+1).padStart(2,'0')} / ${String(LEVELS.length).padStart(2,'0')}`;
+    ui.compactSector.textContent=`${String(this.level+1).padStart(2,'0')}/${String(LEVELS.length).padStart(2,'0')}`;
     ui.charge.style.width=`${this.energy}%`;ui.chargeText.textContent=`${Math.floor(this.energy)}%`;
     ui.chargeBar.setAttribute('aria-valuenow',String(Math.floor(this.energy)));
     ui.pulse.disabled=this.state!=='playing'||this.energy<100||this.timers.pulse>0;
