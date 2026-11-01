@@ -40,8 +40,8 @@ with sync_playwright() as pw:
         page.add_script_tag(content=js)
         assert page.evaluate('window.__impulseDebug().state') == 'menu'
         assert page.locator('#compactSector').inner_text() == '01/05'
-        assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'gameplay-081-20261101'
-        assert page.locator('.eyebrow').inner_text() == 'АРКАДА • ИГРА 0.8.1'
+        assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'gameplay-090-20261101'
+        assert page.locator('.eyebrow').inner_text() == 'АРКАДА • ИГРА 0.9'
         assert page.evaluate('document.documentElement.scrollWidth') <= width
         geometry = page.evaluate('''() => {
             const box = s => document.querySelector(s).getBoundingClientRect();
@@ -101,7 +101,7 @@ with sync_playwright() as pw:
         assert combo_stats['multiplier'] == 2, combo_stats
         assert combo_stats['gain'] >= 500, combo_stats
         assert combo_stats['timers']['wide'] > 0 and combo_stats['timers']['pulse'] > 0, combo_stats
-        assert combo_stats['marker'] == 'gameplay-081-20261101', combo_stats
+        assert combo_stats['marker'] == 'gameplay-090-20261101', combo_stats
         specials = page.evaluate("""() => {
             game.level=1;game.startLevel();game.launch();
             const blast=game.bricks.find(b=>b.type==='blast');
@@ -347,5 +347,56 @@ with sync_playwright() as pw:
         print(f"{label}: sector3 90 paints in {paint_stats['ms']:.1f}ms (desktop/mobile emulation)")
         assert not errors, errors
         print(f'{label}: responsive, controls, pause, blur OK; JS errors: 0')
+        context.close()
+    # Dedicated real-origin browser session: localStorage must survive a reload.
+    # The response is served by Playwright itself, with no external network.
+    inline_html=html.replace('</head>', '<style>'+css+'</style></head>').replace(
+        '</body>', '<script>'+js+'</script></body>')
+    for label,width,height in [('checkpoint-mobile-320',320,568),('checkpoint-mobile-393',393,852)]:
+        context=browser.new_context(viewport={'width':width,'height':height},
+                                    is_mobile=True,has_touch=True)
+        page=context.new_page()
+        errors=[]
+        page.on('pageerror',lambda error: errors.append(str(error)))
+        page.route('https://impulse.test/**', lambda route: route.fulfill(
+            status=200,content_type='text/html',body=inline_html))
+        page.goto('https://impulse.test/')
+        assert page.evaluate('window.__impulseDebug().state') == 'menu'
+        first=page.evaluate("""() => {
+            game.launch();game.launch();
+            game.score=6450;game.lives=2;game.energy=75;
+            game.runStats.hits=38;
+            game.bricks=[];game.checkStageCompletion();
+            return {phase:game.state,sector:game.checkpoint?.sector,
+                    score:game.score,stored:!!localStorage.getItem(CFG.checkpointKey)};
+        }""")
+        assert first['phase']=='between' and first['sector']==1 and first['stored'],first
+        page.reload()
+        assert page.evaluate('window.__impulseDebug().state')=='menu'
+        assert page.locator('#newGameAction').is_visible()
+        assert 'ПРОДОЛЖИТЬ' in page.locator('#overlayAction').inner_text()
+        geo=page.evaluate("""() => {
+            const stage=document.querySelector('#overlay').getBoundingClientRect();
+            const button=document.querySelector('#newGameAction').getBoundingClientRect();
+            return {buttonBottom:button.bottom,stageBottom:stage.bottom,
+                    buttonTop:button.top,stageTop:stage.top};
+        }""")
+        assert geo['buttonBottom']<=geo['stageBottom']+1 and geo['buttonTop']>=geo['stageTop']-1,geo
+        page.locator('#overlayAction').click()
+        resumed=page.evaluate("""() => ({
+            state:game.state,level:game.level,score:game.score,lives:game.lives,
+            energy:game.energy,hits:game.runStats.hits,balls:game.activeBalls().length
+        })""")
+        assert resumed=={'state':'ready','level':1,'score':first['score'],
+                         'lives':2,'energy':75,'hits':38,'balls':1},resumed
+        # Reload again and explicitly start a new campaign.
+        page.reload()
+        page.locator('#newGameAction').click()
+        assert page.evaluate('game.level===0&&game.score===0&&game.lives===3&&game.state==="ready"')
+        assert page.evaluate('localStorage.getItem(CFG.checkpointKey)') is None
+        page.reload()
+        assert page.locator('#newGameAction').count()==0
+        assert not errors,errors
+        print(f'{label}: local checkpoint, reload, continue and reset OK')
         context.close()
     browser.close()

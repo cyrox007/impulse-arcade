@@ -196,3 +196,8 @@ button{font:inherit;cursor:pointer}button:focus-visible{outline:2px solid #9beaf
   .overlay h2 { font-size: 19px; margin-bottom: 5px; }
   .overlay-action { min-height: 36px; padding: 6px 12px; }
 }
+
+/* 0.9.0: separate, compact secondary action for an existing checkpoint. */
+.overlay-new-game{margin-top:9px;background:#162541;border:1px solid #6880ac;color:#c9ddfb;box-shadow:none;font-size:11px;padding:9px 17px;letter-spacing:.8px}
+.overlay-new-game:focus-visible{outline:2px solid #6ce4ec;outline-offset:2px}
+@media(max-height:600px){.overlay-new-game{min-height:30px;padding:5px 10px;margin-top:5px;font-size:10px}}

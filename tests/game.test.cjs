@@ -8,12 +8,12 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const source = readFileSync(path.join(root, 'game.js'), 'utf8');
 
-function createEnvironment({fpsDebug=false,reducedMotion=false}={}) {
+function createEnvironment({fpsDebug=false,reducedMotion=false,sharedStorage=null,storageBlocked=false}={}) {
   const handlers = new Map();
   const gradientCalls={linear:0,radial:0};
   let animationFrame=null, clock=0;
   const records = new Map();
-  const storage = new Map();
+  const storage = sharedStorage||new Map();
   const fakeGradient = {addColorStop() {}};
   const canvasContext = new Proxy({}, {
     get(target, property) {
@@ -48,7 +48,11 @@ function createEnvironment({fpsDebug=false,reducedMotion=false}={}) {
     addEventListener(type, handler) {handlers.set('window:'+type, handler);}};
   const sandbox = {
     window, document,
-    localStorage: {getItem(key) {return storage.get(key)??null;}, setItem(key,value) {storage.set(key,value);}},
+    localStorage: {
+      getItem(key) {if(storageBlocked)throw Error('storage denied');return storage.get(key)??null;},
+      setItem(key,value) {if(storageBlocked)throw Error('quota exceeded');storage.set(key,value);},
+      removeItem(key) {if(storageBlocked)throw Error('storage denied');storage.delete(key);}
+    },
     performance: {now: () => clock++ / 2},
     requestAnimationFrame(cb) {animationFrame=cb;},
     console, Math, Array, Object, String, Number, Map
@@ -197,8 +201,8 @@ test('ограничение положения платформы и захва
 test('статический сайт не зависит от внешних JS/CSS и имеет мета-описание', () => {
   const html = readFileSync(path.join(root,'index.html'),'utf8');
   assert.match(html, /name="description"/);
-  assert.match(html, /src="game\.js\?v=gameplay-081-20261101"/);
-  assert.match(html, /href="style\.css\?v=gameplay-081-20261101"/);
+  assert.match(html, /src="game\.js\?v=gameplay-090-20261101"/);
+  assert.match(html, /href="style\.css\?v=gameplay-090-20261101"/);
   assert.doesNotMatch(html, /<script[^>]*src="https?:\/\//i);
   assert.doesNotMatch(html, /<link[^>]*href="https?:\/\//i);
 });
@@ -1498,4 +1502,159 @@ test('0.8.1: скриншот 03/05 — нижний удар по крайне�
   assert.equal(game.bricks.length,0);
   assert.equal(game.sectorPhase,'guardian');
   assert.equal(game.boss?.kind,'guardian');
+});
+
+test('0.9.0: контрольная точка сохраняется только после очистки сектора',()=>{
+  const {game,CFG,storage}=createEnvironment();
+  game.launch();game.launch();
+  assert.equal(storage.has(CFG.checkpointKey),false);
+  game.score=1245;game.energy=66;game.runStats.hits=12;game.runStats.seconds=43.5;
+  game.update(.016);
+  assert.equal(storage.has(CFG.checkpointKey),false,'mid-sector must never overwrite checkpoint');
+  game.bricks=[];game.checkStageCompletion();
+  assert.equal(game.state,'between');
+  assert.equal(game.checkpoint.sector,1);
+  const saved=JSON.parse(storage.get(CFG.checkpointKey));
+  assert.equal(saved.version,1);assert.equal(saved.sector,1);
+  assert.equal(saved.score,game.score);assert.equal(saved.lives,game.lives);
+  assert.equal(saved.energy,66);assert.equal(saved.stats.hits,12);
+  assert.ok(saved.stats.seconds>=43.5);
+  assert.equal(game.state,'between');
+  assert.equal(game.activeBalls().length,1);
+});
+
+test('0.9.0: новая сессия восстанавливает сектор, жизни, очки, энергию и статистику',()=>{
+  const sharedStorage=new Map();
+  const first=createEnvironment({sharedStorage});const g=first.game;
+  g.launch();g.launch();g.score=7350;g.lives=2;g.energy=81;
+  g.runStats.hits=32;g.runStats.splits=2;g.runStats.seconds=129;
+  g.bricks=[];g.checkStageCompletion();
+  assert.equal(g.checkpoint.sector,1);
+  const expectedScore=g.score;
+  const next=createEnvironment({sharedStorage});const restored=next.game;
+  assert.equal(restored.state,'menu');
+  assert.equal(restored.checkpoint.sector,1);
+  assert.ok(next.elements.get('overlay').innerHTML.includes('ПРОДОЛЖИТЬ'));
+  assert.ok(next.elements.get('overlay').innerHTML.includes('newGameAction'));
+  restored.launch();
+  assert.equal(restored.state,'ready');
+  assert.equal(restored.level,1);
+  assert.equal(restored.score,expectedScore);
+  assert.equal(restored.lives,2);
+  assert.equal(restored.energy,81);
+  assert.equal(restored.runStats.hits,32);
+  assert.equal(restored.runStats.splits,2);
+  assert.equal(restored.runStats.seconds,129);
+  assert.equal(restored.shieldCharges,0);
+  assert.equal(restored.timers.pulse,0);
+  assert.equal(restored.timers.magnet,0);
+  assert.equal(restored.extraBalls.length,0);
+  assert.equal(restored.boss,null);
+  assert.ok(restored.bricks.length>0);
+  assert.equal(next.storage.has(next.CFG.checkpointKey),true);
+});
+
+test('0.9.0: сохранение фиксирует следующий сектор после победы над Стражем',()=>{
+  const {game,storage,CFG}=createEnvironment();game.launch();
+  game.level=2;game.startLevel();game.launch();game.lives=1;game.energy=92;
+  game.bricks=[];game.checkStageCompletion();
+  finishGuardian(game);
+  assert.equal(game.checkpoint.sector,3);
+  assert.equal(JSON.parse(storage.get(CFG.checkpointKey)).sector,3);
+  game.launch();
+  assert.equal(game.level,3);assert.equal(game.lives,1);assert.equal(game.energy,100);
+});
+
+test('0.9.0: сохранение не обновляется от ударов, паузы и потери жизни',()=>{
+  const {game,storage,CFG}=createEnvironment();game.launch();game.launch();
+  game.bricks=[];game.checkStageCompletion();
+  const saved=storage.get(CFG.checkpointKey);
+  game.launch();game.launch();
+  game.score+=500;game.energy=11;game.applyDrop('multi');
+  game.togglePause();game.update(3);game.launch();
+  game.dropBall();
+  assert.equal(storage.get(CFG.checkpointKey),saved);
+});
+
+test('0.9.0: новая игра удаляет сохранение, но сохраняет личный рекорд',()=>{
+  const sharedStorage=new Map();const first=createEnvironment({sharedStorage});const g=first.game;
+  g.launch();g.launch();g.score=5000;g.bricks=[];g.checkStageCompletion();
+  assert.ok(sharedStorage.has(first.CFG.checkpointKey));
+  const next=createEnvironment({sharedStorage});
+  next.game.startNewGame();
+  assert.equal(next.game.level,0);assert.equal(next.game.state,'ready');
+  assert.equal(next.game.score,0);assert.equal(next.game.lives,3);
+  assert.equal(sharedStorage.has(first.CFG.checkpointKey),false);
+  assert.equal(next.game.best,5300,'sector bonus is included in personal best');
+  const reload=createEnvironment({sharedStorage});
+  assert.equal(reload.game.checkpoint,null);
+  assert.ok(!reload.elements.get('overlay').innerHTML.includes('newGameAction'));
+});
+
+test('0.9.0: проигрыш позволяет вернуться к последней контрольной точке',()=>{
+  const {game,storage,CFG}=createEnvironment();game.launch();game.launch();
+  game.bricks=[];game.checkStageCompletion();
+  const checkpoint=JSON.parse(storage.get(CFG.checkpointKey));
+  game.launch();game.launch();game.lives=1;game.dropBall();
+  assert.equal(game.state,'lost');
+  assert.ok(game.overlayContent('lost').includes('ПРОДОЛЖИТЬ'));
+  game.launch();
+  assert.equal(game.state,'ready');
+  assert.equal(game.level,checkpoint.sector);
+  assert.equal(game.lives,checkpoint.lives);
+  assert.equal(game.score,checkpoint.score);
+});
+
+test('0.9.0: полная победа удаляет контрольную точку и не позволяет продолжить',()=>{
+  const {game,storage,CFG}=createEnvironment();game.launch();game.launch();
+  game.bricks=[];game.checkStageCompletion();
+  assert.ok(storage.has(CFG.checkpointKey));
+  game.level=4;game.startLevel();game.launch();game.end('won');
+  assert.equal(game.checkpoint,null);
+  assert.equal(storage.has(CFG.checkpointKey),false);
+  const next=createEnvironment({sharedStorage:storage});
+  assert.ok(!next.elements.get('overlay').innerHTML.includes('newGameAction'));
+});
+
+test('0.9.0: повреждённые и несовместимые сохранения не ломают старт',()=>{
+  const storage=new Map();
+  for(const payload of [
+    '{not json',JSON.stringify({version:2,sector:1}),
+    JSON.stringify({version:1,sector:99,score:12,lives:2,energy:5,stats:{}}),
+    JSON.stringify({version:1,sector:1,score:-4,lives:2,energy:5,stats:{}}),
+    JSON.stringify({version:1,sector:1,score:12,lives:0,energy:5,stats:{}}),
+    'x'.repeat(4100)
+  ]){
+    storage.set('impulse-arcade:checkpoint:v1',payload);
+    const {game}=createEnvironment({sharedStorage:storage});
+    assert.equal(game.state,'menu');
+    assert.equal(game.checkpoint,null);
+    assert.doesNotThrow(()=>game.launch());
+    assert.equal(game.state,'ready');
+  }
+});
+
+test('0.9.0: если localStorage недоступен, игра всё равно запускается',()=>{
+  const {game}=createEnvironment({storageBlocked:true});
+  assert.equal(game.state,'menu');
+  assert.equal(game.checkpoint,null);
+  game.launch();game.launch();game.bricks=[];game.checkStageCompletion();
+  assert.equal(game.state,'between');
+  assert.equal(game.checkpoint,null,'save failure must not appear successful');
+  game.launch();
+  assert.equal(game.state,'ready');
+});
+
+test('0.9.0: контрольная точка не пересчитывает бонус за пройденный сектор',()=>{
+  const storage=new Map();const original=createEnvironment({sharedStorage:storage});
+  const g=original.game;g.launch();g.launch();g.score=3000;g.bricks=[];g.checkStageCompletion();
+  const saved=g.score;
+  const next=createEnvironment({sharedStorage:storage});next.game.launch();
+  assert.equal(next.game.score,saved);
+  next.game.launch();
+  assert.equal(next.game.score,saved);
+  next.game.bricks=[];next.game.checkStageCompletion();
+  assert.equal(next.game.state,'between');
+  assert.equal(next.game.checkpoint.sector,2);
+  assert.ok(next.game.score>saved);
 });

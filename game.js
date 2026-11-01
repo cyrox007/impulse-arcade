@@ -12,7 +12,7 @@ const CFG = Object.freeze({
   brickW: 64, brickH: 25, brickGapX: 7, brickGapY: 9,
   brickStartX: 30, brickStartY: 110,
   pulseDuration: 5.4, wideDuration: 12, slowDuration: 7, comboWindow: 6,
-  storageKey: 'impulse-arcade:best:v1'
+  storageKey: 'impulse-arcade:best:v1', checkpointKey:'impulse-arcade:checkpoint:v1'
 });
 
 const LEVELS = [
@@ -71,10 +71,39 @@ function createLayer(width=CFG.width,height=CFG.height){
 }
 function safeLoadBest(){try{return Math.max(0,Number(localStorage.getItem(CFG.storageKey))||0)}catch(_){return 0}}
 function safeSaveBest(value){try{localStorage.setItem(CFG.storageKey,String(value))}catch(_){/* file:/// or restricted storage */}}
+// Checkpoints are intentionally taken only on cleared sector boundaries.
+// Never persist moving entities, ongoing boss fights or partially destroyed bricks.
+const CHECKPOINT_VERSION=1;
+const STAT_KEYS=['seconds','hits','broken','pulses','maxCombo','barriers','splits'];
+function safeLoadCheckpoint(){
+  try{
+    const raw=localStorage.getItem(CFG.checkpointKey);
+    if(!raw||raw.length>4096)return null;
+    const value=JSON.parse(raw);
+    if(!value||value.version!==CHECKPOINT_VERSION||
+       !Number.isInteger(value.sector)||value.sector<1||value.sector>=LEVELS.length||
+       !Number.isSafeInteger(value.score)||value.score<0||value.score>1e9||
+       !Number.isInteger(value.lives)||value.lives<1||value.lives>5||
+       !Number.isFinite(value.energy)||value.energy<0||value.energy>100||
+       !value.stats||typeof value.stats!=='object'||Array.isArray(value.stats)||
+       !STAT_KEYS.every(k=>typeof value.stats[k]==='number'&&Number.isFinite(value.stats[k])&&
+         value.stats[k]>=0&&value.stats[k]<=1e9))return null;
+    return {version:CHECKPOINT_VERSION,sector:value.sector,score:value.score,
+      lives:value.lives,energy:value.energy,
+      stats:Object.fromEntries(STAT_KEYS.map(k=>[k,value.stats[k]]))};
+  }catch(_){return null}
+}
+function safeSaveCheckpoint(checkpoint){
+  try{localStorage.setItem(CFG.checkpointKey,JSON.stringify(checkpoint));return true}
+  catch(_){return false}
+}
+function safeClearCheckpoint(){
+  try{localStorage.removeItem(CFG.checkpointKey)}catch(_){/* storage may be blocked */}
+}
 
 class Game {
   constructor(){
-    this.frame=0;this.state='menu';this.score=0;this.best=safeLoadBest();this.lives=3;this.level=0;
+    this.frame=0;this.state='menu';this.score=0;this.best=safeLoadBest();this.checkpoint=safeLoadCheckpoint();this.lives=3;this.level=0;
     this.energy=0;this.bricks=[];this.drops=[];this.particles=[];this.waves=[];this.enemyShots=[];this.boss=null;this.sectorPhase='bricks';this.keys={};this.activePointerId=null;
     this.reducedMotion=Boolean(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     this.paddle={x:CFG.width/2,w:CFG.paddleW,y:CFG.paddleY,h:CFG.paddleH};this.targetX=this.paddle.x;
@@ -166,7 +195,42 @@ class Game {
     if(!fallback)throw new Error('No reachable face for directional brick at '+brick.row+','+brick.col);
     brick.face=fallback;
   }
+  saveCheckpoint(){
+    if(this.state!=='between'||this.level>=LEVELS.length-1)return false;
+    const checkpoint={version:CHECKPOINT_VERSION,sector:this.level+1,
+      score:this.score,lives:this.lives,energy:this.energy,
+      stats:Object.fromEntries(STAT_KEYS.map(k=>[k,this.runStats[k]]))};
+    // Storage may be disabled or full: never report an unsaved checkpoint as saved.
+    if(!safeSaveCheckpoint(checkpoint))return false;
+    this.checkpoint=checkpoint;
+    return true;
+  }
+  continueGame(){
+    if(!this.checkpoint||!['menu','lost'].includes(this.state))return false;
+    // Re-validate persisted values before applying, including in-memory edits.
+    const saved=this.checkpoint;
+    const valid=saved.version===CHECKPOINT_VERSION&&
+      Number.isInteger(saved.sector)&&saved.sector>=1&&saved.sector<LEVELS.length&&
+      Number.isSafeInteger(saved.score)&&saved.score>=0&&saved.score<=1e9&&
+      Number.isInteger(saved.lives)&&saved.lives>=1&&saved.lives<=5&&
+      Number.isFinite(saved.energy)&&saved.energy>=0&&saved.energy<=100&&
+      saved.stats&&STAT_KEYS.every(k=>Number.isFinite(saved.stats[k])&&saved.stats[k]>=0&&saved.stats[k]<=1e9);
+    if(!valid){this.checkpoint=null;safeClearCheckpoint();return false}
+    this.level=saved.sector;this.score=saved.score;this.lives=saved.lives;
+    this.energy=saved.energy;
+    this.runStats=Object.fromEntries(STAT_KEYS.map(k=>[k,saved.stats[k]]));
+    this.time=0;this.resetCombo();this.bestComboInSector=0;
+    this.lastSectorBestCombo=0;this.lastSectorBonus=0;
+    this.shieldCharges=0;
+    this.paddle.x=CFG.width/2;this.targetX=this.paddle.x;
+    this.keys={};this.activePointerId=null;
+    this.timers={pulse:0,wide:0,slow:0,magnet:0};
+    this.drops=[];this.particles=[];this.waves=[];this.enemyShots=[];
+    this.startLevel();return true;
+  }
   startNewGame(){
+    // Explicit new game replaces any previous checkpoint, including after defeat.
+    this.checkpoint=null;safeClearCheckpoint();
     this.score=0;this.lives=3;this.energy=0;this.level=0;this.timers={pulse:0,wide:0,slow:0,magnet:0};
     this.resetCombo();this.bestComboInSector=0;this.lastSectorBonus=0;this.lastSectorBestCombo=0;
     this.runStats={seconds:0,hits:0,broken:0,pulses:0,maxCombo:0,barriers:0,splits:0};this.shieldCharges=0;
@@ -179,7 +243,11 @@ class Game {
     this.resetBall();this.setState('ready');this.hideOverlay();this.flash=0;this.updateUI();
   }
   launch(){
-    if(this.state==='menu' || this.state==='lost' || this.state==='won'){this.startNewGame();return}
+    if(this.state==='menu' || this.state==='lost'){
+      if(this.checkpoint&&this.continueGame())return;
+      this.startNewGame();return;
+    }
+    if(this.state==='won'){this.startNewGame();return}
     if(this.state==='between'){this.level++;this.startLevel();return}
     if(this.state==='paused'){this.resume();return}
     if(this.state==='playing'){this.releaseHeldBalls();return}
@@ -261,6 +329,9 @@ class Game {
     this.resetBall();this.setState('ready');this.updateUI();
   }
   end(kind){
+    if(kind==='won'){
+      this.checkpoint=null;safeClearCheckpoint(); // Never resume a completed campaign.
+    }
     this.setState(kind);this.updateBest();
     this.showOverlay(kind);beep(kind==='won'?720:180,.25,.04,'triangle');
   }
@@ -417,7 +488,11 @@ class Game {
     this.resetCombo();
     this.updateBest();this.addParticles(CFG.width/2,230,45,'#59efff');
     if(this.level===LEVELS.length-1)this.end('won');
-    else {this.setState('between');this.showOverlay('between');beep(740,.19,.06)}
+    else {
+      this.setState('between');
+      this.saveCheckpoint(); // The next untouched sector can be resumed after a reload.
+      this.showOverlay('between');beep(740,.19,.06);
+    }
   }
   updateBest(){if(this.score>this.best){this.best=this.score;safeSaveBest(this.best)}}
   hitBrick(brick,index){
@@ -732,16 +807,23 @@ class Game {
       ' · Разделений: '+this.runStats.splits;
   }
   overlayContent(kind){
+    const checkpoint=this.checkpoint&&['intro','lost'].includes(kind)?this.checkpoint:null;
+    const resumeLabel=checkpoint?'ПРОДОЛЖИТЬ · СЕКТОР '+String(checkpoint.sector+1).padStart(2,'0'):null;
     const common={
-      intro:{icon:'✦',kicker:'НОВАЯ АРКАДА',title:'ИМПУЛЬС',text:'Пять секторов, мультишар и новые испытания. В третьем секторе Страж ядра, в пятом — Реактор.',action:'НАЧАТЬ ИГРУ',small:'На телефоне двигай платформу пальцем по полю. На ПК — мышь или стрелки.'},
+      intro:{icon:'✦',kicker:'НОВАЯ АРКАДА',title:'ИМПУЛЬС',text:'Пять секторов, мультишар и новые испытания. В третьем секторе Страж ядра, в пятом — Реактор.',action:resumeLabel||'НАЧАТЬ ИГРУ',small:checkpoint?'Сохранено на этом устройстве в начале сектора '+(checkpoint.sector+1)+'.':'На телефоне двигай платформу пальцем по полю. На ПК — мышь или стрелки.'},
       pause:{icon:'Ⅱ',kicker:'ИГРА ПРИОСТАНОВЛЕНА',title:'ПАУЗА',text:'Шар ждёт твоего возвращения.',action:'ПРОДОЛЖИТЬ',small:'Клавиша P — пауза / продолжить.'},
       between:{icon:'✧',kicker:'СЕКТОР ОЧИЩЕН',title:'ОТЛИЧНАЯ РАБОТА',text:`Следующий сектор: ${LEVELS[this.level+1]?.name ?? 'ФИНАЛ'}. Бонус за жизни: +${this.lastSectorBonus}. Лучшая серия: ${this.lastSectorBestCombo}. Жизни и счёт сохраняются.`,action:'СЛЕДУЮЩИЙ СЕКТОР',small:'Впереди более прочные блоки.'},
       won:{icon:'★',kicker:'МИССИЯ ВЫПОЛНЕНА',title:'ПЯТЬ СЕКТОРОВ И ДВА БОССА ПРОЙДЕНЫ',text:`Финальный счёт: ${this.score.toLocaleString('ru-RU')}. Бонус финального сектора: +${this.lastSectorBonus}. Твой рекорд: ${this.best.toLocaleString('ru-RU')}.`,action:'СЫГРАТЬ СНОВА',small:this.statsSummary()},
-      lost:{icon:'✕',kicker:'ПОПЫТКА ЗАВЕРШЕНА',title:'ИГРА ОКОНЧЕНА',text:`Ты набрал ${this.score.toLocaleString('ru-RU')} очков. Попробуй ещё раз!`,action:'НОВАЯ ПОПЫТКА',small:this.statsSummary()}
+      lost:{icon:'✕',kicker:'ПОПЫТКА ЗАВЕРШЕНА',title:'ИГРА ОКОНЧЕНА',text:`Ты набрал ${this.score.toLocaleString('ru-RU')} очков. Попробуй ещё раз!`,action:resumeLabel||'НОВАЯ ПОПЫТКА',small:checkpoint?'Сохранена контрольная точка перед сектором '+(checkpoint.sector+1)+'.':this.statsSummary()}
     }[kind];
-    return `<div class="overlay-icon" aria-hidden="true">${common.icon}</div><div class="overlay-kicker">${common.kicker}</div><h2>${common.title}</h2><p>${common.text}</p><button type="button" class="overlay-action" id="overlayAction">${common.action}</button><div class="overlay-small">${common.small}</div>`;
+    return `<div class="overlay-icon" aria-hidden="true">${common.icon}</div><div class="overlay-kicker">${common.kicker}</div><h2>${common.title}</h2><p>${common.text}</p><button type="button" class="overlay-action" id="overlayAction">${common.action}</button>${checkpoint?'<button type="button" class="overlay-action overlay-new-game" id="newGameAction">НОВАЯ ИГРА</button>':''}<div class="overlay-small">${common.small}</div>`;
   }
-  showOverlay(kind){ui.overlay.innerHTML=this.overlayContent(kind);ui.overlay.hidden=false;ui.overlay.querySelector('#overlayAction').addEventListener('click',()=>this.launch(),{once:true})}
+  showOverlay(kind){
+    ui.overlay.innerHTML=this.overlayContent(kind);ui.overlay.hidden=false;
+    ui.overlay.querySelector('#overlayAction').addEventListener('click',()=>this.launch(),{once:true});
+    if(this.checkpoint&&['intro','lost'].includes(kind))
+      ui.overlay.querySelector('#newGameAction').addEventListener('click',()=>this.startNewGame(),{once:true});
+  }
   hideOverlay(){ui.overlay.hidden=true;ui.overlay.innerHTML=''}
   updateUI(){
     ui.score.textContent=String(this.score).padStart(6,'0');ui.best.textContent=String(this.best).padStart(6,'0');
@@ -1198,4 +1280,4 @@ function loop(now){
 }
 requestAnimationFrame(loop);
 // Expose a read-only diagnostic snapshot for automated smoke tests, no gameplay cheats.
-window.__impulseDebug=()=>({state:game.state,score:game.score,level:game.level,lives:game.lives,bricks:game.bricks.length,energy:game.energy,combo:game.comboHits,fps:game.performance.fps,maxFrameMs:game.performance.maxFrameMs,avgUpdateMs:game.performance.avgUpdateMs,avgDrawMs:game.performance.avgDrawMs,spritePaintCount:game.spritePaintCount,shots:game.enemyShots.length,balls:game.activeBalls().length,held:game.activeBalls().filter(b=>b.held).length,moving:game.bricks.filter(b=>b.type==='moving').length,phase:game.sectorPhase,bossHP:game.boss?.hp??0,shield:game.shieldCharges,particles:game.particles.length,waves:game.waves.length,stats:{...game.runStats}});
+window.__impulseDebug=()=>({state:game.state,score:game.score,level:game.level,lives:game.lives,bricks:game.bricks.length,energy:game.energy,combo:game.comboHits,fps:game.performance.fps,maxFrameMs:game.performance.maxFrameMs,avgUpdateMs:game.performance.avgUpdateMs,avgDrawMs:game.performance.avgDrawMs,spritePaintCount:game.spritePaintCount,shots:game.enemyShots.length,balls:game.activeBalls().length,held:game.activeBalls().filter(b=>b.held).length,moving:game.bricks.filter(b=>b.type==='moving').length,phase:game.sectorPhase,checkpointSector:game.checkpoint?.sector??null,bossHP:game.boss?.hp??0,shield:game.shieldCharges,particles:game.particles.length,waves:game.waves.length,stats:{...game.runStats}});
