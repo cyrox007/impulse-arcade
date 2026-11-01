@@ -224,7 +224,7 @@ class Game {
         this.score+=60*(this.level+1);this.energy=clamp(this.energy+6,0,100);
       }
     }
-    this.flash=Math.max(this.flash,this.reducedMotion?.07:.16);
+    this.flash=Math.max(this.flash,this.reducedMotion ? .07 : .16);
   }
   maybeDrop(brick){
     if(Math.random()>LEVELS[this.level].dropChance)return;
@@ -254,7 +254,7 @@ class Game {
     };
     const [color,highlight]=colors[brick.type]||colors.normal;
     const amount=destroyed?(brick.type==='blast'?14:brick.type==='armor'?11:9):brick.type==='armor'?5:3;
-    this.addParticles(x,y,secondary?Math.min(amount,6):amount,color,{shard:destroyed,life:destroyed?.44:.27});
+    this.addParticles(x,y,secondary?Math.min(amount,6):amount,color,{shard:destroyed,life:destroyed ? .44 : .27});
     if(!destroyed){
       if(brick.type==='armor')this.addWave(x,y,highlight,18,.14,1.6);
       return;
@@ -273,7 +273,7 @@ class Game {
       // Short radial explosion. Never recursively triggers gameplay damage.
       this.addWave(x,y,color,64,.31,3.5,'burst');
       this.addWave(x,y,highlight,95,.35,1.8);
-      this.flash=Math.max(this.flash,this.reducedMotion?.05:.12);
+      this.flash=Math.max(this.flash,this.reducedMotion ? .05 : .12);
     }
   }
   addWave(x,y,color,radius,duration,width=2,kind='ring'){
