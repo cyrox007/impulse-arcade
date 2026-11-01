@@ -211,3 +211,140 @@ test('потеря фокуса очищает кнопки и касания, �
   assert.equal(game.activePointerId,null);
   assert.equal(Object.keys(game.keys).length,0);
 });
+
+test('0.2: все три сектора проходимы через реальную логику попадания мяча', () => {
+  const {game,CFG,LEVELS,storage,elements} = createEnvironment();
+  game.launch();
+  assert.equal(game.state,'ready');
+  const sectorScores=[];
+  for(let sector=0;sector<LEVELS.length;sector++) {
+    assert.equal(game.level,sector);
+    game.launch();
+    assert.equal(game.state,'playing');
+    assert.ok(Math.abs(game.ballSpeed()-game.levelSpeed())<.001);
+    let contacts=0;
+    for(const brick of [...game.bricks].reverse()){
+      while(brick.hp>0) {
+        brick.lock=0;
+        const oldHP=brick.hp;
+        // Put the ball just below a real brick and let moveBall resolve contact.
+        game.ball.x=brick.x+brick.w/2;
+        game.ball.y=brick.y+brick.h+game.ball.r+.5;
+        game.ball.vx=0;
+        game.ball.vy=-game.levelSpeed();
+        game.moveBall(.004);
+        assert.equal(brick.hp,oldHP-1, 'every contact must damage exactly once');
+        if(++contacts>200)assert.fail('unbounded contact loop');
+      }
+    }
+    assert.equal(game.bricks.length,0);
+    sectorScores.push(game.score);
+    if(sector<LEVELS.length-1){
+      assert.equal(game.state,'between');
+      assert.equal(elements.get('overlay').hidden,false);
+      const lastScore=game.score,lastLives=game.lives,lastEnergy=game.energy;
+      game.launch(); // Continue via regular start action.
+      assert.equal(game.level,sector+1);
+      assert.equal(game.state,'ready');
+      assert.equal(game.score,lastScore);
+      assert.equal(game.lives,lastLives);
+      assert.equal(game.energy,lastEnergy);
+      assert.equal(game.ballSpeed(),0);
+    }else{
+      assert.equal(game.state,'won');
+      assert.equal(elements.get('overlay').hidden,false);
+      assert.ok(elements.get('overlay').innerHTML.includes('ТРИ СЕКТОРА ПРОЙДЕНЫ'));
+    }
+  }
+  assert.ok(sectorScores[0]>0 && sectorScores[1]>sectorScores[0] && sectorScores[2]>sectorScores[1]);
+  const best=game.best,finalScore=game.score;
+  assert.equal(best,finalScore);
+  assert.equal(Number(storage.get(CFG.storageKey)),best);
+  game.launch();
+  assert.equal(game.state,'ready');
+  assert.equal(game.level,0);
+  assert.equal(game.lives,3);
+  assert.equal(game.score,0);
+  assert.equal(game.best,best);
+  assert.equal(game.energy,0);
+});
+
+test('0.2: рост стартовой скорости по секторам остаётся в безопасных пределах', () => {
+  const {game,CFG,LEVELS}=createEnvironment();
+  const speeds=LEVELS.map((_,i)=>{game.level=i;return game.levelSpeed()});
+  assert.equal(speeds[0],CFG.initialSpeed);
+  assert.ok(speeds[0]<speeds[1] && speeds[1]<speeds[2]);
+  assert.ok(speeds.every(s=>s<=CFG.maxSpeed));
+  assert.ok(LEVELS.every(level=>level.dropChance>=0 && level.dropChance<=1));
+  assert.ok(LEVELS[2].dropChance>=LEVELS[0].dropChance);
+});
+
+test('0.2: бонусы, потеря мяча и начало уровня не оставляют старые эффекты', () => {
+  const {game,CFG}=createEnvironment();
+  game.launch();game.launch();
+  game.applyDrop('wide');
+  game.applyDrop('slow');
+  game.energy=100;game.pulse();
+  assert.ok(game.timers.pulse>0);
+  assert.ok(game.timers.wide>0);
+  assert.ok(game.timers.slow>0);
+  game.dropBall();
+  assert.equal(game.state,'ready');
+  assert.equal(game.timers.pulse,0);
+  assert.equal(game.timers.slow,0);
+  assert.equal(game.timers.wide,0);
+  assert.equal(game.paddle.w,CFG.paddleW);
+  assert.equal(game.drops.length,0);
+  assert.equal(game.lives,2);
+  assert.equal(game.energy,0);
+  game.launch();
+  assert.equal(game.state,'playing');
+  assert.equal(game.ballSpeed(),game.levelSpeed());
+});
+
+test('0.2: замедление восстанавливает скорость по истечении таймера', () => {
+  const {game}=createEnvironment();
+  game.launch();game.launch();
+  game.ball.x=240;game.ball.y=510;
+  const before=game.ballSpeed();
+  game.applyDrop('slow');
+  assert.ok(game.ballSpeed()<before);
+  game.timers.slow=.001;
+  game.update(.005);
+  assert.equal(game.timers.slow,0);
+  assert.ok(Math.abs(game.ballSpeed()-before)<1);
+});
+
+test('0.2: пауза останавливает таймеры, частицы и игровое время', () => {
+  const {game}=createEnvironment();
+  game.launch();game.launch();
+  game.applyDrop('wide');
+  game.addParticles(150,200,2,'#fff');
+  const snap=()=>JSON.stringify({time:game.time,frame:game.frame,particles:game.particles,
+    ball:game.ball,timers:game.timers,energy:game.energy});
+  game.togglePause();
+  const paused=snap();
+  for(let i=0;i<50;i++)game.update(.016);
+  assert.equal(snap(),paused);
+  game.launch();
+  game.update(.016);
+  assert.notEqual(snap(),paused);
+});
+
+test('0.2: симуляция FPS 30/60/120 не создаёт нечисловые или выходящие за поле координаты', () => {
+  const {CFG}=createEnvironment();
+  for(const fps of [30,60,120]) {
+    const {game}=createEnvironment();
+    game.launch();game.launch();
+    game.bricks=[]; // isolate ball and wall motion; sector completion is tested separately
+    game.ball.x=240;game.ball.y=420;game.ball.vx=150;game.ball.vy=-280;
+    for(let frame=0;frame<fps*7;frame++){
+      if(game.state==='ready')game.launch();
+      game.update(1/fps);
+      for(const k of ['x','y','vx','vy'])assert.ok(Number.isFinite(game.ball[k]),fps+':'+k);
+      assert.ok(game.ball.x>=CFG.left-1 && game.ball.x<=CFG.right+1);
+      assert.ok(game.ballSpeed()<=CFG.maxSpeed+1);
+      if(game.state==='lost')break;
+    }
+  }
+});
