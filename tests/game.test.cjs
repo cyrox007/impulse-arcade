@@ -1585,7 +1585,7 @@ test('0.9.0: новая игра удаляет сохранение, но со�
   assert.equal(next.game.level,0);assert.equal(next.game.state,'ready');
   assert.equal(next.game.score,0);assert.equal(next.game.lives,3);
   assert.equal(sharedStorage.has(first.CFG.checkpointKey),false);
-  assert.equal(next.game.best,5000);
+  assert.equal(next.game.best,5300,'sector bonus is included in personal best');
   const reload=createEnvironment({sharedStorage});
   assert.equal(reload.game.checkpoint,null);
   assert.ok(!reload.elements.get('overlay').innerHTML.includes('newGameAction'));
