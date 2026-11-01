@@ -61,6 +61,23 @@ function createEnvironment({fpsDebug=false,reducedMotion=false}={}) {
   };
 }
 
+function finishGuardian(game){
+  assert.equal(game.sectorPhase,'guardian','guardian should begin after all bricks');
+  assert.ok(game.boss);
+  let hits=0;
+  while(game.boss){
+    const b=game.boss;
+    b.lock=0;b.phaseTime=0;
+    game.ball.x=b.x+b.w/2;game.ball.y=b.y+b.h+game.ball.r+.4;
+    game.ball.vx=0;game.ball.vy=-game.levelSpeed();
+    game.moveBall(.004);
+    if(++hits>10)assert.fail('guardian stuck');
+  }
+  assert.equal(hits,6);
+  assert.equal(game.state,'won');
+  assert.equal(game.sectorPhase,'finished');
+}
+
 test('стартовая сцена → готовность → запуск шара', () => {
   const {game,CFG,LEVELS} = createEnvironment();
   assert.equal(game.state, 'menu');
@@ -120,7 +137,7 @@ test('повреждение кирпича, счёт, рекорд и пере�
       assert.equal(game.state,'ready');
       assert.equal(game.level,level+1);
       game.launch();
-    } else assert.equal(game.state,'won');
+    } else finishGuardian(game);
   }
   assert.ok(game.best>0);
   assert.equal(Number(storage.get(CFG.storageKey)), game.best);
@@ -259,9 +276,10 @@ test('0.2: все три сектора проходимы через реаль
       assert.equal(game.energy,lastEnergy);
       assert.equal(game.ballSpeed(),0);
     }else{
-      assert.equal(game.state,'won');
+      finishGuardian(game);
       assert.equal(elements.get('overlay').hidden,false);
-      assert.ok(elements.get('overlay').innerHTML.includes('ТРИ СЕКТОРА ПРОЙДЕНЫ'));
+      assert.ok(elements.get('overlay').innerHTML.includes('ТРИ СЕКТОРА И СТРАЖ ПРОЙДЕНЫ'));
+      sectorScores[sector]=game.score;
     }
   }
   assert.ok(sectorScores[0]>0 && sectorScores[1]>sectorScores[0] && sectorScores[2]>sectorScores[1]);
@@ -538,6 +556,7 @@ test('0.3: завершение сектора даёт бонус за жизн
       brick.lock=0;game.hitBrick(brick,game.bricks.length-1);hits++;
     }
     assert.ok(hits>0);
+    if(sector===LEVELS.length-1)finishGuardian(game);
     assert.equal(game.lastSectorBonus,200*(oldLevel+1));
     assert.equal(game.comboHits,0);
     assert.equal(game.lastSectorBestCombo,hits);
@@ -745,4 +764,119 @@ test('0.4.1: режим уменьшения анимации не создаё�
   game.hitBrick(brick,0);
   assert.equal(game.waves.length,0);
   assert.ok(game.particles.length>0&&game.particles.length<=3);
+});
+
+test('0.5: в секторах 2–3 подвижные блоки не меняют статический кэш',()=>{
+  const {game}=createEnvironment();game.launch();
+  assert.equal(game.bricks.some(b=>b.type==='moving'),false);
+  game.level=1;game.startLevel();game.launch();game.draw();
+  const movers=game.bricks.filter(b=>b.type==='moving');
+  assert.equal(movers.length,2);
+  const before=game.brickPaintCount,positions=movers.map(b=>b.x);
+  for(let i=0;i<120;i++){game.updateMovingBricks(1/60);game.draw()}
+  assert.equal(game.brickPaintCount,before);
+  assert.ok(movers.some((b,i)=>b.x!==positions[i]));
+  assert.doesNotThrow(()=>game.drawMovingBricks());
+  game.level=2;game.startLevel();
+  assert.equal(game.bricks.filter(b=>b.type==='moving').length,1);
+});
+
+test('0.5: подвижная цель отражается от границы и не проходит сквозь соседей',()=>{
+  const {game,CFG}=createEnvironment();game.launch();
+  game.level=1;game.startLevel();
+  const b=game.bricks.find(x=>x.type==='moving');
+  for(const dt of [1/30,1/60,1/120]){
+    for(let i=0;i<240;i++){
+      game.updateMovingBricks(dt);
+      assert.ok(b.x>=b.minX-.0001 && b.x<=b.maxX+.0001);
+      assert.ok(b.x>=CFG.left && b.x+b.w<=CFG.right);
+    }
+  }
+  b.x=b.maxX-.2;b.vx=36;game.updateMovingBricks(.01);
+  assert.equal(b.x,b.maxX);assert.ok(b.vx<0);
+  b.x=b.minX+.2;b.vx=-36;game.updateMovingBricks(.01);
+  assert.equal(b.x,b.minX);assert.ok(b.vx>0);
+});
+
+test('0.5: удар по движущемуся блоку не пересобирает кэш кирпичей',()=>{
+  const {game}=createEnvironment();game.launch();game.level=1;game.startLevel();game.launch();
+  game.draw();const paints=game.brickPaintCount;
+  const moving=game.bricks.find(b=>b.type==='moving');
+  const score=game.score;
+  game.ball.x=moving.x+moving.w/2;game.ball.y=moving.y+moving.h+game.ball.r+.4;
+  game.ball.vx=0;game.ball.vy=-game.levelSpeed();
+  game.moveBall(.004);
+  assert.equal(moving.hp,0);
+  assert.ok(game.score>score);
+  assert.equal(game.bricksDirty,false);
+  game.draw();assert.equal(game.brickPaintCount,paints);
+});
+
+test('0.5: после последнего кирпича третьего сектора появляется Страж',()=>{
+  const {game}=createEnvironment();game.launch();game.level=2;game.startLevel();game.launch();
+  while(game.bricks.length){
+    const b=game.bricks[game.bricks.length-1];b.lock=0;
+    game.hitBrick(b,game.bricks.length-1);
+  }
+  assert.equal(game.state,'playing');
+  assert.equal(game.sectorPhase,'guardian');
+  assert.equal(game.boss.hp,6);
+  assert.equal(game.lastSectorBonus,0);
+  assert.doesNotThrow(()=>game.drawGuardian());
+  assert.doesNotThrow(()=>game.drawGameplayStatus());
+  finishGuardian(game);
+  assert.ok(game.lastSectorBonus>0);
+});
+
+test('0.5: защита Стража блокирует урон, уязвимость принимает ровно один',()=>{
+  const {game}=createEnvironment();game.launch();game.level=2;game.startLevel();game.launch();
+  game.bricks=[];game.checkStageCompletion();
+  const boss=game.boss;
+  assert.ok(boss);
+  boss.phaseTime=2.7;
+  const initial=game.score;
+  game.ball.x=boss.x+boss.w/2;game.ball.y=boss.y+boss.h+game.ball.r+.4;
+  game.ball.vx=0;game.ball.vy=-game.levelSpeed();game.moveBall(.004);
+  assert.equal(boss.hp,6);
+  assert.equal(game.score,initial);
+  boss.phaseTime=0;boss.lock=0;
+  game.ball.x=boss.x+boss.w/2;game.ball.y=boss.y+boss.h+game.ball.r+.4;
+  game.ball.vx=0;game.ball.vy=-game.levelSpeed();game.moveBall(.004);
+  assert.equal(boss.hp,5);
+  assert.equal(game.damageGuardian(),false,'hit lock prevents double damage');
+  assert.equal(boss.hp,5);
+  assert.ok(game.score>initial);
+});
+
+test('0.5: таймер защитной фазы не движется на паузе, рестарт очищает босса',()=>{
+  const {game}=createEnvironment();game.launch();game.level=2;game.startLevel();game.launch();
+  game.bricks=[];game.checkStageCompletion();
+  game.update(.3);
+  const t=game.boss.phaseTime;
+  game.togglePause();game.update(10);
+  assert.equal(game.boss.phaseTime,t);
+  game.launch();game.update(.2);
+  assert.ok(game.boss.phaseTime>t);
+  game.startNewGame();
+  assert.equal(game.boss,null);
+  assert.equal(game.sectorPhase,'bricks');
+  assert.equal(game.level,0);
+});
+
+test('0.5: импульс не пробивает защищённого Стража',()=>{
+  const {game}=createEnvironment();game.launch();game.level=2;game.startLevel();game.launch();
+  game.bricks=[];game.checkStageCompletion();
+  const b=game.boss;
+  game.energy=100;game.pulse();assert.ok(game.timers.pulse>0);
+  b.phaseTime=2.8;
+  game.ball.x=b.x+b.w/2;game.ball.y=b.y+b.h+game.ball.r+.4;
+  game.ball.vx=0;game.ball.vy=-game.levelSpeed();
+  game.moveBall(.004);
+  assert.equal(b.hp,6);
+  assert.ok(game.ball.vy>0,'shield reflects powered ball');
+  b.phaseTime=0;b.lock=0;
+  game.ball.y=b.y+b.h+game.ball.r+.4;
+  game.ball.vy=-game.levelSpeed();
+  game.moveBall(.004);
+  assert.equal(b.hp,5);
 });
