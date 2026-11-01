@@ -201,3 +201,31 @@ button{font:inherit;cursor:pointer}button:focus-visible{outline:2px solid #9beaf
 .overlay-new-game{margin-top:9px;background:#162541;border:1px solid #6880ac;color:#c9ddfb;box-shadow:none;font-size:11px;padding:9px 17px;letter-spacing:.8px}
 .overlay-new-game:focus-visible{outline:2px solid #6ce4ec;outline-offset:2px}
 @media(max-height:600px){.overlay-new-game{min-height:30px;padding:5px 10px;margin-top:5px;font-size:10px}}
+
+/* 1.0 RC: compact control panel, above the paused overlay on every viewport. */
+.settings-panel{position:absolute;inset:0;z-index:5;display:grid;place-items:center;
+ background:#080e23eb;padding:12px;overflow-y:auto;overscroll-behavior:contain}
+.settings-panel[hidden]{display:none}
+.settings-dialog{width:min(100%,310px);max-height:100%;overflow-y:auto;padding:15px 17px;
+ border:1px solid #577a9d;border-radius:15px;background:#111c34;
+ box-shadow:0 15px 35px #0008;display:grid;gap:7px}
+.settings-heading{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px}
+.settings-heading h2{font-size:17px;letter-spacing:1.5px;margin:0;color:#ebfaff}
+.settings-close{width:30px;height:30px;border-radius:7px;border:1px solid #597294;
+ background:#23314b;color:#edf8ff;font-size:16px}
+.settings-dialog label{color:#c8e6f3;font-size:10px;letter-spacing:.75px;font-weight:800;
+ display:flex;justify-content:space-between;align-items:center}
+.settings-dialog output{font-variant-numeric:tabular-nums;color:#75dcf0}
+.settings-dialog input[type=range]{width:100%;margin:0 0 8px;accent-color:#65dceb;height:23px;touch-action:pan-x}
+.settings-dialog select{width:100%;padding:7px 6px;border-radius:7px;border:1px solid #526d91;
+ background:#1b2d4c;color:#ecf8ff;font-size:12px;margin-bottom:7px}
+.settings-dialog p{margin:0;color:#9eb4cf;font-size:10px;line-height:1.35}
+.settings-done{margin-top:5px;padding:9px 12px;border:0;border-radius:8px;
+ background:linear-gradient(100deg,#52d5e5,#819fff);color:#10213c;font-weight:850;
+ font-size:12px}
+.settings-panel button:focus-visible,.settings-panel input:focus-visible,
+.settings-panel select:focus-visible{outline:2px solid #86f8ff;outline-offset:2px}
+@media(max-height:600px){.settings-dialog{gap:3px;padding:9px 12px}
+ .settings-heading h2{font-size:14px}.settings-dialog input[type=range]{margin-bottom:4px;height:18px}
+ .settings-dialog select{margin-bottom:4px}.settings-dialog p{font-size:9px}
+ .settings-done{padding:6px 10px}}
