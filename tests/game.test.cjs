@@ -108,9 +108,9 @@ test('повреждение кирпича, счёт, рекорд и пере�
   game.hitBrick(game.bricks[0],0);
   assert.ok(game.score > initialScore);
   for(let level=0;level<LEVELS.length;level++) {
-    for(let i=game.bricks.length-1;i>=0;i--) {
-      const brick=game.bricks[i];
-      while (brick.hp>0) {brick.lock=0;game.hitBrick(brick,i);}
+    while(game.bricks.length) {
+      const brick=game.bricks[game.bricks.length-1];
+      brick.lock=0;game.hitBrick(brick,game.bricks.length-1);
     }
     assert.equal(game.bricks.length,0);
     if (level<LEVELS.length-1) {
@@ -159,8 +159,8 @@ test('ограничение положения платформы и захва
 test('статический сайт не зависит от внешних JS/CSS и имеет мета-описание', () => {
   const html = readFileSync(path.join(root,'index.html'),'utf8');
   assert.match(html, /name="description"/);
-  assert.match(html, /src="game\.js\?v=gameplay-03-20261101"/);
-  assert.match(html, /href="style\.css\?v=gameplay-03-20261101"/);
+  assert.match(html, /src="game\.js\?v=gameplay-04-20261101"/);
+  assert.match(html, /href="style\.css\?v=gameplay-04-20261101"/);
   assert.doesNotMatch(html, /<script[^>]*src="https?:\/\//i);
   assert.doesNotMatch(html, /<link[^>]*href="https?:\/\//i);
 });
@@ -232,19 +232,17 @@ test('0.2: все три сектора проходимы через реаль
     assert.equal(game.state,'playing');
     assert.ok(Math.abs(game.ballSpeed()-game.levelSpeed())<.001);
     let contacts=0;
-    for(const brick of [...game.bricks].reverse()){
-      while(brick.hp>0) {
-        brick.lock=0;
-        const oldHP=brick.hp;
-        // Put the ball just below a real brick and let moveBall resolve contact.
-        game.ball.x=brick.x+brick.w/2;
-        game.ball.y=brick.y+brick.h+game.ball.r+.5;
-        game.ball.vx=0;
-        game.ball.vy=-game.levelSpeed();
-        game.moveBall(.004);
-        assert.equal(brick.hp,oldHP-1, 'every contact must damage exactly once');
-        if(++contacts>200)assert.fail('unbounded contact loop');
-      }
+    while(game.bricks.length && game.state==='playing'){
+      const brick=game.bricks[game.bricks.length-1];
+      brick.lock=0;
+      const oldHP=brick.hp;
+      // Put the ball just below a real brick and let moveBall resolve contact.
+      game.ball.x=brick.x+brick.w/2;
+      game.ball.y=brick.y+brick.h+game.ball.r+.5;
+      game.ball.vx=0;game.ball.vy=-game.levelSpeed();
+      game.moveBall(.004);
+      assert.equal(brick.hp,oldHP-1,'every contact must damage exactly once');
+      if(++contacts>200)assert.fail('unbounded contact loop');
     }
     assert.equal(game.bricks.length,0);
     sectorScores.push(game.score);
@@ -384,9 +382,9 @@ test('perf: урон, разрушение и следующий сектор и
   assert.equal(game.brickPaintCount,before+1);
   for(let i=0;i<30;i++)game.draw();
   assert.equal(game.brickPaintCount,before+1);
-  for(let i=game.bricks.length-1;i>=0;i--){
-    const b=game.bricks[i];
-    while(b.hp>0){b.lock=0;game.hitBrick(b,i);}
+  while(game.bricks.length){
+    const b=game.bricks[game.bricks.length-1];
+    b.lock=0;game.hitBrick(b,game.bricks.length-1);
   }
   assert.equal(game.state,'between');
   game.launch();
@@ -534,9 +532,9 @@ test('0.3: завершение сектора даёт бонус за жизн
     const oldLevel=game.level;
     game.lives=2;
     let hits=0;
-    for(let i=game.bricks.length-1;i>=0;i--){
-      const brick=game.bricks[i];
-      while(brick.hp>0){brick.lock=0;game.hitBrick(brick,i);hits++;}
+    while(game.bricks.length){
+      const brick=game.bricks[game.bricks.length-1];
+      brick.lock=0;game.hitBrick(brick,game.bricks.length-1);hits++;
     }
     assert.ok(hits>0);
     assert.equal(game.lastSectorBonus,200*(oldLevel+1));
@@ -589,4 +587,77 @@ test('0.3: подсказки бонусов и серии не требуют �
   assert.ok(game.timers.wide>0&&game.timers.slow>0&&game.timers.pulse>0);
   assert.equal(elements.get('compactSector').textContent,'01/03');
   assert.equal(game.paddle.w,145);
+});
+
+test('0.4: взрывные блоки появляются во втором и третьем секторах',()=>{
+  const {game}=createEnvironment();
+  game.launch();
+  assert.equal(game.bricks.some(b=>b.type==='blast'),false);
+  game.level=1;game.startLevel();
+  const blast=game.bricks.find(b=>b.type==='blast');
+  assert.ok(blast);
+  assert.ok(Number.isInteger(blast.row)&&Number.isInteger(blast.col));
+  game.level=2;game.startLevel();
+  assert.ok(game.bricks.filter(b=>b.type==='blast').length>=2);
+});
+
+test('0.4: взрыв наносит соседям один урон без цепной детонации или лишних комбо',()=>{
+  const {game}=createEnvironment();
+  game.launch();game.level=1;game.startLevel();game.launch();
+  const blast=game.bricks.find(b=>b.type==='blast');
+  const neighbors=game.bricks.filter(b=>Math.abs(b.row-blast.row)+Math.abs(b.col-blast.col)===1);
+  assert.ok(neighbors.length>=2);
+  const initialHP=neighbors.map(b=>b.hp);
+  const initialLength=game.bricks.length;
+  game.hitBrick(blast,game.bricks.indexOf(blast));
+  assert.equal(blast.hp,0);
+  assert.equal(game.comboHits,1,'secondary hits do not inflate combo');
+  neighbors.forEach((b,i)=>assert.equal(b.hp,initialHP[i]-1));
+  assert.equal(game.runStats.hits,1);
+  assert.equal(game.runStats.broken,1+neighbors.filter(b=>b.hp===0).length);
+  assert.equal(game.bricks.length,initialLength-game.runStats.broken);
+  assert.ok(game.energy>=20);
+  assert.equal(game.bricksDirty,true);
+});
+
+test('0.4: одноразовый барьер спасает жизнь и сбрасывается после срабатывания',()=>{
+  const {game,CFG}=createEnvironment();
+  game.launch();game.launch();
+  game.applyDrop('shield');assert.equal(game.shieldCharges,1);
+  game.ball.x=240;game.ball.y=CFG.bottom+CFG.ballRadius+2;
+  game.ball.vx=130;game.ball.vy=250;
+  game.moveBall(.001);
+  assert.equal(game.shieldCharges,0);
+  assert.equal(game.lives,3);
+  assert.equal(game.state,'playing');
+  assert.ok(game.ball.vy<0);
+  assert.equal(game.runStats.barriers,1);
+  game.ball.y=CFG.bottom+CFG.ballRadius+2;game.ball.vy=250;
+  game.moveBall(.001);
+  assert.equal(game.lives,2);
+  assert.equal(game.state,'ready');
+  assert.equal(game.runStats.barriers,1);
+});
+
+test('0.4: статистика забега учитывает игровое время, удары, импульсы и сброс',()=>{
+  const {game,elements}=createEnvironment();
+  game.launch();game.launch();
+  game.update(.025);
+  const elapsed=game.runStats.seconds;
+  assert.ok(elapsed>=.025);
+  game.hitBrick(game.bricks[0],0);
+  game.energy=100;game.pulse();
+  assert.equal(game.runStats.hits,1);
+  assert.equal(game.runStats.broken,1);
+  assert.equal(game.runStats.pulses,1);
+  assert.equal(game.runStats.maxCombo,1);
+  game.togglePause();game.update(.05);
+  assert.equal(game.runStats.seconds,elapsed);
+  game.launch();
+  game.end('lost');
+  assert.ok(elements.get('overlay').innerHTML.includes('Разрушено: 1'));
+  game.launch();
+  assert.equal(game.runStats.hits,0);
+  assert.equal(game.runStats.seconds,0);
+  assert.equal(game.runStats.pulses,0);
 });
