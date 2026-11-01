@@ -1,13 +1,10 @@
-"""Опциональный UI smoke-test без веб-сервера.
+"""Browser smoke for compact/normal mobile and desktop (not a physical-phone test).
 
-Требуется Python Playwright и Chromium:
-  python -m pip install playwright
-  python -m playwright install chromium
-  python tests/browser_smoke.py
-
-HTML/CSS/JS встраиваются в страницу. Это не проверяет хостинг или физический телефон.
+Requirements: pip install playwright; python -m playwright install chromium.
+HTML/CSS/JS are inlined to avoid file:// or localhost policy restrictions.
 """
 from pathlib import Path
+import shutil
 from playwright.sync_api import sync_playwright
 
 root = Path(__file__).resolve().parents[1]
@@ -18,12 +15,21 @@ html = html.replace('<link rel="stylesheet" href="style.css">', '')
 html = html.replace('<script src="game.js" defer></script>', '')
 
 with sync_playwright() as pw:
-    browser = pw.chromium.launch(headless=True, executable_path='/usr/bin/chromium', args=['--no-sandbox'])
-    for label, context_kwargs in (
-        ('desktop', {'viewport': {'width': 1100, 'height': 900}}),
-        ('mobile', {'viewport': {'width': 393, 'height': 852}, 'is_mobile': True, 'has_touch': True, 'device_scale_factor': 2}),
-    ):
-        context = browser.new_context(**context_kwargs)
+    binary = shutil.which('chromium') or shutil.which('google-chrome')
+    options = {'headless': True, 'args': ['--no-sandbox']}
+    if binary:
+        options['executable_path'] = binary
+    browser = pw.chromium.launch(**options)
+    devices = [
+        ('desktop', 1100, 900),
+        ('mobile-320', 320, 568),
+        ('mobile-360', 360, 640),
+        ('mobile-393', 393, 852),
+    ]
+    for label, width, height in devices:
+        mobile = label.startswith('mobile')
+        context = browser.new_context(viewport={'width': width, 'height': height},
+                                      is_mobile=mobile, has_touch=mobile)
         page = context.new_page()
         errors = []
         page.on('pageerror', lambda error: errors.append(str(error)))
@@ -31,13 +37,22 @@ with sync_playwright() as pw:
         page.add_style_tag(content=css)
         page.add_script_tag(content=js)
         assert page.evaluate('window.__impulseDebug().state') == 'menu'
-        assert page.locator('#overlayAction').count() == 1
+        assert page.evaluate('document.documentElement.scrollWidth') <= width
+        geometry = page.evaluate('''() => {
+            const box = s => document.querySelector(s).getBoundingClientRect();
+            return {stage: box('#overlay').toJSON(), title: box('.overlay h2').toJSON(),
+                    action: box('#overlayAction').toJSON(), launch: box('#launchBtn').toJSON()};
+        }''')
+        assert geometry['action']['bottom'] <= geometry['stage']['bottom'] + 1, geometry
+        assert geometry['title']['top'] >= geometry['stage']['top'] - 1, geometry
+        assert geometry['launch']['bottom'] <= height + 1, geometry
         page.locator('#overlayAction').click()
         assert page.evaluate('window.__impulseDebug().state') == 'ready'
-        if label == 'mobile':
+        if mobile:
             rect = page.locator('#game').bounding_box()
-            assert rect and rect['width'] > 100, rect
-            page.touchscreen.tap(rect['x']+rect['width']/2, rect['y']+rect['height']*.7)
+            assert rect and rect['width'] > 180, rect
+            page.touchscreen.tap(rect['x'] + rect['width']/2,
+                                 rect['y'] + rect['height']*.7)
         else:
             page.locator('#launchBtn').click()
         assert page.evaluate('window.__impulseDebug().state') == 'playing'
@@ -45,7 +60,9 @@ with sync_playwright() as pw:
         assert page.evaluate('window.__impulseDebug().state') == 'paused'
         page.locator('#overlayAction').click()
         assert page.evaluate('window.__impulseDebug().state') == 'playing'
+        page.evaluate('window.dispatchEvent(new Event("blur"))')
+        assert page.evaluate('window.__impulseDebug().state') == 'paused'
         assert not errors, errors
-        print(f'{label}: menu → ready → playing → paused → playing; JS errors: 0')
+        print(f'{label}: responsive, controls, pause, blur OK; JS errors: 0')
         context.close()
     browser.close()
