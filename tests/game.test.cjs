@@ -1328,8 +1328,9 @@ test('0.8.1: боковые направленные блоки доступны
   game.level=3;game.startLevel();game.launch();
   const right=game.bricks.find(b=>b.type==='directional'&&b.face==='R');
   assert.ok(right);game.bricks=[right];
-  ball.x=right.x+right.w+ball.r+.4;ball.y=right.y+right.h/2;
-  ball.vx=-400;ball.vy=0;
+  const rightBall=game.ball;
+  rightBall.x=right.x+right.w+rightBall.r+.4;rightBall.y=right.y+right.h/2;
+  rightBall.vx=-400;rightBall.vy=0;
   game.moveBall(.004);assert.equal(right.hp,0);
 });
 
