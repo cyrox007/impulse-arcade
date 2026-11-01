@@ -108,6 +108,22 @@ with sync_playwright() as pw:
         assert paint_stats['after'] == paint_stats['first'], paint_stats
         assert paint_stats['bricks'] >= 25, paint_stats
         assert paint_stats['fpsType'] == 'number', paint_stats
+        sprite_stats = page.evaluate("""() => {
+            const before = game.spritePaintCount;
+            for(let i=0;i<90;i++) game.draw();
+            game.applyDrop('wide');
+            game.energy=100;
+            game.pulse();
+            game.draw();
+            return {before, after:game.spritePaintCount,
+                    ball:!!game.sprites.ballNormal,
+                    paddle:!!game.sprites.paddleWide,
+                    visibleStats:window.__impulseDebug().avgDrawMs};
+        }""")
+        assert sprite_stats['before'] == 4, sprite_stats
+        assert sprite_stats['after'] == 4, sprite_stats
+        assert sprite_stats['ball'] and sprite_stats['paddle'], sprite_stats
+        assert isinstance(sprite_stats['visibleStats'], (int, float)), sprite_stats
         print(f"{label}: sector3 90 paints in {paint_stats['ms']:.1f}ms (desktop/mobile emulation)")
         assert not errors, errors
         print(f'{label}: responsive, controls, pause, blur OK; JS errors: 0')

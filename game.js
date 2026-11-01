@@ -61,9 +61,9 @@ function roundRect(x,y,w,h,r,fillStyle,strokeStyle,target=ctx){
   if(strokeStyle){target.strokeStyle=strokeStyle;target.stroke()}
 }
 // Cached 480×720 layers: expensive shadows/gradients are only repainted when needed.
-function createLayer(){
+function createLayer(width=CFG.width,height=CFG.height){
   if(typeof document.createElement!=='function')return null;
-  const layer=document.createElement('canvas');layer.width=CFG.width;layer.height=CFG.height;
+  const layer=document.createElement('canvas');layer.width=width;layer.height=height;
   const target=layer.getContext('2d');
   return target?{canvas:layer,ctx:target}:null;
 }
@@ -79,7 +79,17 @@ class Game {
     this.timers={pulse:0,wide:0,slow:0};this.time=0;this.flash=0;
     this.stars=Array.from({length:68},(_,i)=>({x:(i*137.37)%CFG.width,y:(i*231.59)%CFG.height,r:i%7===0?1.6:.8,s:(i%4)*.16+.18}));
     this.backdropLayer=createLayer();this.brickLayer=createLayer();this.bricksDirty=true;this.brickPaintCount=0;
-    this.performance={fps:0,maxFrameMs:0,frames:0,seconds:0,worst:0};
+    // A few tiny, transparent sprites replace gradients/shadows rebuilt every frame.
+    this.spritePaintCount=0;
+    this.sprites={
+      paddleNormal:this.makePaddleSprite(CFG.paddleW,false),
+      paddleWide:this.makePaddleSprite(145,true),
+      ballNormal:this.makeBallSprite(false),
+      ballPulse:this.makeBallSprite(true)
+    };
+    this.profileEnabled=Boolean(window.location && /(?:\?|&)fps=1(?:&|$)/.test(window.location.search||''));
+    this.performance={fps:0,maxFrameMs:0,avgUpdateMs:0,avgDrawMs:0,
+      frames:0,seconds:0,worst:0,updateTotalMs:0,drawTotalMs:0};
     if(this.backdropLayer)this.drawBackdrop(this.backdropLayer.ctx);
     this.draw();this.showOverlay('intro');this.updateUI();
   }
@@ -331,10 +341,12 @@ class Game {
     this.drawDrops();this.drawParticles();this.drawPaddle();this.drawBall();
     if(this.flash>0){ctx.fillStyle=`rgba(252,114,201,${Math.min(.2,this.flash*.4)})`;ctx.fillRect(0,0,w,h)}
     // Opt-in on-device FPS overlay: ?fps=1 (no clutter during normal play).
-    if(window.location && /(?:\?|&)fps=1(?:&|$)/.test(window.location.search||'')){
-      ctx.fillStyle='#081327db';ctx.fillRect(CFG.left+8,CFG.height-84,150,22);
+    if(this.profileEnabled){
+      const m=this.performance;
+      ctx.fillStyle='#081327eb';ctx.fillRect(CFG.left+8,CFG.height-110,198,44);
       ctx.fillStyle='#c7edff';ctx.font='12px system-ui';ctx.textAlign='left';
-      ctx.fillText(`FPS: ${this.performance.fps}  max: ${this.performance.maxFrameMs}ms`,CFG.left+13,CFG.height-68);
+      ctx.fillText(`FPS: ${m.fps}  max: ${m.maxFrameMs}ms`,CFG.left+13,CFG.height-94);
+      ctx.fillText(`Логика: ${m.avgUpdateMs}мс  Графика: ${m.avgDrawMs}мс`,CFG.left+13,CFG.height-76);
     }
   }
   drawBackdrop(target){
@@ -371,24 +383,71 @@ class Game {
     ctx.fillStyle=color;ctx.font='bold 17px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(d.type==='wide'?'↔':d.type==='slow'?'◷':'♥',d.x,d.y+1);ctx.textBaseline='alphabetic';
   }}
   drawParticles(){for(const p of this.particles){ctx.globalAlpha=clamp(p.life/.6,0,1);ctx.fillStyle=p.color;ctx.fillRect(p.x,p.y,p.r,p.r)}ctx.globalAlpha=1}
-  drawPaddle(){
-    const p=this.paddle;const left=p.x-p.w/2;
-    ctx.shadowColor=this.timers.wide>0?'#5cf9bf':'#4adff5';ctx.shadowBlur=19;
-    const g=ctx.createLinearGradient(left,p.y,left,p.y+p.h);g.addColorStop(0,'#d4faff');g.addColorStop(.35,'#64dcef');g.addColorStop(1,'#2475b5');
-    roundRect(left,p.y,p.w,p.h,7,g,'#a2f2ff');ctx.shadowBlur=0;
-    roundRect(p.x-19,p.y+2,38,3,2,'#ecfaff');
-    ctx.fillStyle='#64dafa8a';ctx.fillRect(left+9,p.y+p.h-1,p.w-18,3);
+
+  paintPaddle(target,w,wide,left,y){
+    target.shadowColor=wide?'#5cf9bf':'#4adff5';target.shadowBlur=19;
+    const gradient=target.createLinearGradient(left,y,left,y+CFG.paddleH);
+    gradient.addColorStop(0,'#d4faff');
+    gradient.addColorStop(.35,'#64dcef');
+    gradient.addColorStop(1,'#2475b5');
+    roundRect(left,y,w,CFG.paddleH,7,gradient,'#a2f2ff',target);target.shadowBlur=0;
+    roundRect(left+w/2-19,y+2,38,3,2,'#ecfaff',null,target);
+    target.fillStyle='#64dafa8a';target.fillRect(left+9,y+CFG.paddleH-1,w-18,3);
   }
-  drawBall(){
-    const b=this.ball;
-    for(const t of b.trail){ctx.globalAlpha=t.life/.2*.23;ctx.fillStyle=this.timers.pulse>0?'#ff71d5':'#67e9ff';ctx.beginPath();ctx.arc(t.x,t.y,b.r*(t.life/.2+.3),0,Math.PI*2);ctx.fill()}
-    ctx.globalAlpha=1;ctx.shadowColor=this.timers.pulse>0?'#ff65d4':'#b6faff';ctx.shadowBlur=this.timers.pulse>0?28:18;
-    const g=ctx.createRadialGradient(b.x-3,b.y-3,2,b.x,b.y,b.r+2);g.addColorStop(0,'#ffffff');g.addColorStop(.42,this.timers.pulse>0?'#ff9be5':'#a6fcff');g.addColorStop(1,this.timers.pulse>0?'#ad4ec6':'#248ca9');
-    ctx.fillStyle=g;ctx.beginPath();ctx.arc(b.x,b.y,b.r,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;
-    if(this.state==='ready'){
-      ctx.globalAlpha=.6+Math.sin(this.time*4)*.3;ctx.strokeStyle='#a6f8ff';ctx.beginPath();ctx.arc(b.x,b.y,b.r+11,0,Math.PI*2);ctx.stroke();ctx.globalAlpha=1;
+  makePaddleSprite(width,wide){
+    const pad=26,layer=createLayer(width+pad*2,CFG.paddleH+pad*2);
+    if(!layer)return null;
+    this.paintPaddle(layer.ctx,width,wide,pad,pad);
+    this.spritePaintCount++;
+    return layer.canvas;
+  }
+  drawPaddle(){
+    const p=this.paddle,wide=this.timers.wide>0;
+    const sprite=wide?this.sprites.paddleWide:this.sprites.paddleNormal;
+    if(sprite&&p.w===(wide?145:CFG.paddleW)){
+      ctx.drawImage(sprite,p.x-p.w/2-26,p.y-26);
+    }else{
+      // Safe fallback for environments without an offscreen canvas.
+      this.paintPaddle(ctx,p.w,wide,p.x-p.w/2,p.y);
     }
   }
+  paintBall(target,pulse,x,y,r){
+    target.shadowColor=pulse?'#ff65d4':'#b6faff';target.shadowBlur=pulse?28:18;
+    const gradient=target.createRadialGradient(x-3,y-3,2,x,y,r+2);
+    gradient.addColorStop(0,'#ffffff');
+    gradient.addColorStop(.42,pulse?'#ff9be5':'#a6fcff');
+    gradient.addColorStop(1,pulse?'#ad4ec6':'#248ca9');
+    target.fillStyle=gradient;target.beginPath();target.arc(x,y,r,0,Math.PI*2);target.fill();
+    target.shadowBlur=0;
+  }
+  makeBallSprite(pulse){
+    const pad=36,size=CFG.ballRadius*2+pad*2,layer=createLayer(size,size);
+    if(!layer)return null;
+    this.paintBall(layer.ctx,pulse,pad+CFG.ballRadius,pad+CFG.ballRadius,CFG.ballRadius);
+    this.spritePaintCount++;
+    return layer.canvas;
+  }
+  drawBall(){
+    const b=this.ball,pulse=this.timers.pulse>0;
+    for(const t of b.trail){
+      ctx.globalAlpha=t.life/.2*.23;
+      ctx.fillStyle=pulse?'#ff71d5':'#67e9ff';
+      ctx.beginPath();ctx.arc(t.x,t.y,b.r*(t.life/.2+.3),0,Math.PI*2);ctx.fill();
+    }
+    ctx.globalAlpha=1;
+    const sprite=pulse?this.sprites.ballPulse:this.sprites.ballNormal;
+    if(sprite&&b.r===CFG.ballRadius){
+      ctx.drawImage(sprite,b.x-b.r-36,b.y-b.r-36);
+    }else{
+      this.paintBall(ctx,pulse,b.x,b.y,b.r);
+    }
+    if(this.state==='ready'){
+      ctx.globalAlpha=.6+Math.sin(this.time*4)*.3;
+      ctx.strokeStyle='#a6f8ff';ctx.beginPath();ctx.arc(b.x,b.y,b.r+11,0,Math.PI*2);
+      ctx.stroke();ctx.globalAlpha=1;
+    }
+  }
+
 }
 
 const game=new Game();
@@ -436,21 +495,31 @@ let last=performance.now();
 function loop(now){
   const frameMs=Math.max(0,now-last);last=now;
   const dt=Math.min(.033,frameMs/1000);
-  const metrics=game.performance;
-  if(frameMs>500){metrics.frames=0;metrics.seconds=0;metrics.worst=0;}
-  else{
-    metrics.frames++;
-    metrics.seconds+=frameMs/1000;
-    metrics.worst=Math.max(metrics.worst,frameMs);
-    if(metrics.seconds>=1){
-      metrics.fps=Math.round(metrics.frames/metrics.seconds);
-      metrics.maxFrameMs=Math.round(metrics.worst);
-      metrics.frames=0;metrics.seconds=0;metrics.worst=0;
+  // Profiling adds two high-resolution reads per frame only when ?fps=1.
+  const profile=game.profileEnabled;
+  const begin=profile?performance.now():0;
+  game.update(dt);
+  const updated=profile?performance.now():0;
+  game.draw();
+  const drawn=profile?performance.now():0;
+  const m=game.performance;
+  if(frameMs>500){
+    m.frames=0;m.seconds=0;m.worst=0;m.updateTotalMs=0;m.drawTotalMs=0;
+  }else{
+    m.frames++;m.seconds+=frameMs/1000;m.worst=Math.max(m.worst,frameMs);
+    if(profile){m.updateTotalMs+=updated-begin;m.drawTotalMs+=drawn-updated;}
+    if(m.seconds>=1){
+      m.fps=Math.round(m.frames/m.seconds);
+      m.maxFrameMs=Math.round(m.worst);
+      if(profile){
+        m.avgUpdateMs=Math.round(100*m.updateTotalMs/m.frames)/100;
+        m.avgDrawMs=Math.round(100*m.drawTotalMs/m.frames)/100;
+      }
+      m.frames=0;m.seconds=0;m.worst=0;m.updateTotalMs=0;m.drawTotalMs=0;
     }
   }
-  game.update(dt);game.draw();
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
 // Expose a read-only diagnostic snapshot for automated smoke tests, no gameplay cheats.
-window.__impulseDebug=()=>({state:game.state,score:game.score,level:game.level,lives:game.lives,bricks:game.bricks.length,energy:game.energy,fps:game.performance.fps,maxFrameMs:game.performance.maxFrameMs});
+window.__impulseDebug=()=>({state:game.state,score:game.score,level:game.level,lives:game.lives,bricks:game.bricks.length,energy:game.energy,fps:game.performance.fps,maxFrameMs:game.performance.maxFrameMs,avgUpdateMs:game.performance.avgUpdateMs,avgDrawMs:game.performance.avgDrawMs,spritePaintCount:game.spritePaintCount});
