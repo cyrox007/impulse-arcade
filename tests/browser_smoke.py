@@ -25,6 +25,7 @@ with sync_playwright() as pw:
         ('mobile-320', 320, 568),
         ('mobile-360', 360, 640),
         ('mobile-393', 393, 852),
+        ('mobile-landscape', 844, 390),
     ]
     for label, width, height in devices:
         mobile = label.startswith('mobile')
@@ -45,10 +46,14 @@ with sync_playwright() as pw:
         }''')
         assert geometry['action']['bottom'] <= geometry['stage']['bottom'] + 1, geometry
         assert geometry['title']['top'] >= geometry['stage']['top'] - 1, geometry
-        assert geometry['launch']['bottom'] <= height + 1, geometry
+        if width < height:
+            assert geometry['launch']['bottom'] <= height + 1, geometry
+        else:
+            assert page.evaluate('document.querySelector("#game").getBoundingClientRect().width') >= 200
         page.locator('#overlayAction').click()
         assert page.evaluate('window.__impulseDebug().state') == 'ready'
         if mobile:
+            page.locator('#game').scroll_into_view_if_needed()
             rect = page.locator('#game').bounding_box()
             assert rect and rect['width'] > 180, rect
             page.touchscreen.tap(rect['x'] + rect['width']/2,
