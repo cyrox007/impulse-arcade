@@ -13,7 +13,7 @@ html = (root / 'index.html').read_text(encoding='utf-8')
 css = (root / 'style.css').read_text(encoding='utf-8')
 js = (root / 'game.js').read_text(encoding='utf-8')
 html = re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]*)?">', '', html)
-html = html.replace('<script src="game.js" defer></script>', '')
+html = re.sub(r'<script src="game\.js(?:\?[^"]*)?" defer></script>', '', html)
 
 with sync_playwright() as pw:
     binary = shutil.which('chromium') or shutil.which('google-chrome')
@@ -90,6 +90,25 @@ with sync_playwright() as pw:
         assert page.evaluate('window.__impulseDebug().state') == 'playing'
         page.evaluate('window.dispatchEvent(new Event("blur"))')
         assert page.evaluate('window.__impulseDebug().state') == 'paused'
+        # Stress the actual third-sector renderer: a stable brick layer must
+        # be rasterized once rather than rebuilt on all 90 paint calls.
+        paint_stats = page.evaluate("""() => {
+            game.level = 2;
+            game.makeBricks();
+            game.draw();
+            const first = game.brickPaintCount;
+            const start = performance.now();
+            for(let i=0;i<90;i++) game.draw();
+            return {cached: Boolean(game.brickLayer), first,
+                    after: game.brickPaintCount,
+                    ms: performance.now()-start, bricks: game.bricks.length,
+                    fpsType: typeof window.__impulseDebug().fps};
+        }""")
+        assert paint_stats['cached'], paint_stats
+        assert paint_stats['after'] == paint_stats['first'], paint_stats
+        assert paint_stats['bricks'] >= 25, paint_stats
+        assert paint_stats['fpsType'] == 'number', paint_stats
+        print(f"{label}: sector3 90 paints in {paint_stats['ms']:.1f}ms (desktop/mobile emulation)")
         assert not errors, errors
         print(f'{label}: responsive, controls, pause, blur OK; JS errors: 0')
         context.close()
