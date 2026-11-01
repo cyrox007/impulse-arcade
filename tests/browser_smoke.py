@@ -40,8 +40,8 @@ with sync_playwright() as pw:
         page.add_script_tag(content=js)
         assert page.evaluate('window.__impulseDebug().state') == 'menu'
         assert page.locator('#compactSector').inner_text() == '01/05'
-        assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'gameplay-090-20261101'
-        assert page.locator('.eyebrow').inner_text() == 'АРКАДА • ИГРА 0.9'
+        assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'gameplay-100rc-20261101'
+        assert page.locator('.eyebrow').inner_text() == 'АРКАДА • 1.0 RC'
         assert page.evaluate('document.documentElement.scrollWidth') <= width
         geometry = page.evaluate('''() => {
             const box = s => document.querySelector(s).getBoundingClientRect();
@@ -73,6 +73,20 @@ with sync_playwright() as pw:
             print(f"{label} arena={metrics['canvasWidth']:.1f}x{metrics['canvasHeight']:.1f}")
         else:
             assert page.evaluate('document.querySelector("#game").getBoundingClientRect().width') >= 200
+        # New release settings panel must fit a compact mobile screen.
+        page.locator('#settingsBtn').click()
+        assert page.locator('#settingsPanel').is_visible()
+        panel_bounds=page.evaluate("""() => {
+            const panel=document.querySelector('#settingsPanel').getBoundingClientRect();
+            const done=document.querySelector('#settingsDone').getBoundingClientRect();
+            return {panelTop:panel.top,panelBottom:panel.bottom,doneTop:done.top,
+                    doneBottom:done.bottom,doneWidth:done.width};
+        }""")
+        assert panel_bounds['doneBottom']<=panel_bounds['panelBottom']+1,panel_bounds
+        assert panel_bounds['doneTop']>=panel_bounds['panelTop']-1,panel_bounds
+        assert panel_bounds['doneWidth']>60,panel_bounds
+        page.locator('#settingsDone').click()
+        assert page.locator('#settingsPanel').is_hidden()
         page.locator('#overlayAction').click()
         assert page.evaluate('window.__impulseDebug().state') == 'ready'
         if mobile:
@@ -84,6 +98,25 @@ with sync_playwright() as pw:
         else:
             page.locator('#launchBtn').click()
         assert page.evaluate('window.__impulseDebug().state') == 'playing'
+        page.locator('#settingsBtn').click()
+        assert page.locator('#settingsPanel').is_visible()
+        assert page.evaluate('game.state')=='paused'
+        page.locator('#effectsSelect').select_option('reduced')
+        page.evaluate("""() => {
+            const el=document.querySelector('#volumeRange');
+            el.value='40';el.dispatchEvent(new Event('input',{bubbles:true}));
+            const sense=document.querySelector('#sensitivityRange');
+            sense.value='120';sense.dispatchEvent(new Event('input',{bubbles:true}));
+        }""")
+        assert page.locator('#volumeValue').inner_text()=='40%'
+        assert page.locator('#sensitivityValue').inner_text()=='120%'
+        assert page.evaluate('game.reducedMotion') is True
+        page.keyboard.press('Escape')
+        assert page.locator('#settingsPanel').is_hidden()
+        assert page.evaluate('game.state')=='paused'
+        page.locator('#overlayAction').click()
+        assert page.evaluate('game.state')=='playing'
+        page.evaluate("game.setSetting('effects','full')")
         combo_stats = page.evaluate("""() => {
             const initial=game.score;
             for(let i=0;i<4;i++)game.hitBrick(game.bricks[0],0);
@@ -101,7 +134,7 @@ with sync_playwright() as pw:
         assert combo_stats['multiplier'] == 2, combo_stats
         assert combo_stats['gain'] >= 500, combo_stats
         assert combo_stats['timers']['wide'] > 0 and combo_stats['timers']['pulse'] > 0, combo_stats
-        assert combo_stats['marker'] == 'gameplay-090-20261101', combo_stats
+        assert combo_stats['marker'] == 'gameplay-100rc-20261101', combo_stats
         specials = page.evaluate("""() => {
             game.level=1;game.startLevel();game.launch();
             const blast=game.bricks.find(b=>b.type==='blast');
@@ -362,6 +395,11 @@ with sync_playwright() as pw:
             status=200,content_type='text/html',body=inline_html))
         page.goto('https://impulse.test/')
         assert page.evaluate('window.__impulseDebug().state') == 'menu'
+        page.locator('#settingsBtn').click()
+        page.locator('#effectsSelect').select_option('reduced')
+        page.locator('#settingsDone').click()
+        page.locator('#soundBtn').click()
+        assert page.evaluate("game.settings.sound && game.reducedMotion")
         first=page.evaluate("""() => {
             game.launch();game.launch();
             game.score=6450;game.lives=2;game.energy=75;
@@ -373,6 +411,8 @@ with sync_playwright() as pw:
         assert first['phase']=='between' and first['sector']==1 and first['stored'],first
         page.reload()
         assert page.evaluate('window.__impulseDebug().state')=='menu'
+        assert page.evaluate("game.settings.sound && game.settings.effects==='reduced'")
+        assert page.locator('#settingsBtn').get_attribute('aria-expanded')=='false'
         assert page.locator('#newGameAction').is_visible()
         assert 'ПРОДОЛЖИТЬ' in page.locator('#overlayAction').inner_text()
         geo=page.evaluate("""() => {
