@@ -445,3 +445,148 @@ test('perf: FPS-профайлер по умолчанию неактивен и
   diagnostic.tick(91*1000/60);
   assert.equal(diagnostic.game.time,lastTime);
 });
+
+test('0.3: серия попаданий начисляет ограниченный множитель очков', () => {
+  const {game}=createEnvironment();
+  game.launch();game.launch();
+  const scores=[100,100,100,200,200,200,300,300,300,400];
+  for(let i=0;i<scores.length;i++) {
+    const before=game.score;
+    game.hitBrick(game.bricks[0],0);
+    assert.equal(game.score-before,scores[i], 'gain for collision '+(i+1));
+    assert.equal(game.comboHits,i+1);
+    assert.ok(game.comboMultiplier()<=4);
+  }
+  assert.equal(game.comboMultiplier(),4);
+  assert.equal(game.bestComboInSector,10);
+  // More successful contacts never increase the multiplier above four.
+  game.comboHits=100;
+  assert.equal(game.comboMultiplier(),4);
+});
+
+test('0.3: броня сохраняет поэтапное повреждение и использует множитель', () => {
+  const {game}=createEnvironment();
+  game.launch();
+  game.level=1;game.startLevel();game.launch();
+  const armor=game.bricks.find(b=>b.hp===2);
+  assert.ok(armor);
+  const idx=game.bricks.indexOf(armor);
+  game.comboHits=3;game.comboUntil=game.time+4;
+  const before=game.score;
+  game.hitBrick(armor,idx);
+  assert.equal(armor.hp,1);
+  assert.equal(game.score-before,70); // x2 × 35 for armored hit
+  armor.lock=0;
+  game.hitBrick(armor,idx);
+  assert.equal(armor.hp,0);
+  assert.equal(game.score-before,70+360); // x2 × 180
+  assert.equal(game.bestComboInSector,5);
+});
+
+test('0.3: серия сбрасывается от платформы, потери шара и простоя', () => {
+  const {game,CFG}=createEnvironment();
+  game.launch();game.launch();
+  game.hitBrick(game.bricks[0],0);
+  game.hitBrick(game.bricks[0],0);
+  assert.equal(game.comboHits,2);
+  // Crossing the paddle on a valid downward trajectory ends the chain.
+  game.ball.x=game.paddle.x;
+  game.ball.y=game.paddle.y-game.ball.r-1;
+  game.ball.vx=60;game.ball.vy=315;
+  game.moveBall(.004);
+  assert.equal(game.comboHits,0);
+  game.hitBrick(game.bricks[0],0);
+  assert.equal(game.comboHits,1);
+  game.time+=CFG.comboWindow+.01;
+  game.hitBrick(game.bricks[0],0);
+  assert.equal(game.comboHits,1);
+  game.dropBall();
+  assert.equal(game.comboHits,0);
+  game.launch();
+  assert.equal(game.comboMultiplier(),1);
+});
+
+test('0.3: пауза сохраняет серию и время бонусов', () => {
+  const {game,CFG}=createEnvironment();
+  game.launch();game.launch();
+  game.hitBrick(game.bricks[0],0);
+  game.hitBrick(game.bricks[0],0);
+  game.applyDrop('wide');game.applyDrop('slow');
+  game.energy=100;game.pulse();
+  const t=game.time,until=game.comboUntil,timers=JSON.stringify(game.timers);
+  game.togglePause();
+  for(let n=0;n<60;n++)game.update(.016);
+  assert.equal(game.time,t);
+  assert.equal(game.comboUntil,until);
+  assert.equal(game.comboHits,2);
+  assert.equal(JSON.stringify(game.timers),timers);
+  game.launch();
+  // Timer and streak still advance only during active play.
+  game.time=until+CFG.comboWindow;
+  game.update(.001);
+  assert.equal(game.comboHits,0);
+});
+
+test('0.3: завершение сектора даёт бонус за жизни и сбрасывает комбо', () => {
+  const {game,LEVELS,storage,CFG,elements}=createEnvironment();
+  game.launch();game.launch();
+  for(let sector=0;sector<LEVELS.length;sector++) {
+    const oldLevel=game.level;
+    game.lives=2;
+    let hits=0;
+    for(let i=game.bricks.length-1;i>=0;i--){
+      const brick=game.bricks[i];
+      while(brick.hp>0){brick.lock=0;game.hitBrick(brick,i);hits++;}
+    }
+    assert.ok(hits>0);
+    assert.equal(game.lastSectorBonus,200*(oldLevel+1));
+    assert.equal(game.comboHits,0);
+    assert.equal(game.lastSectorBestCombo,hits);
+    assert.ok(game.score>=game.lastSectorBonus);
+    assert.equal(game.best,game.score);
+    assert.equal(Number(storage.get(CFG.storageKey)),game.score);
+    if(sector<LEVELS.length-1){
+      assert.ok(elements.get('overlay').innerHTML.includes('Бонус за жизни'));
+      game.launch();
+      assert.equal(game.level,sector+1);
+      assert.equal(game.comboHits,0);
+      game.launch();
+    }else{
+      assert.equal(game.state,'won');
+      assert.ok(elements.get('overlay').innerHTML.includes('Бонус финального сектора'));
+    }
+  }
+  game.launch();
+  assert.equal(game.score,0);
+  assert.equal(game.lastSectorBonus,0);
+  assert.equal(game.bestComboInSector,0);
+});
+
+test('0.3: защита от горизонтальной петли сохраняет скорость и направление', () => {
+  const {game,CFG}=createEnvironment();
+  game.launch();game.launch();
+  game.ball.x=CFG.width/2;game.ball.y=500;
+  for(const sign of [-1,1]){
+    game.ball.vx=420;game.ball.vy=sign*3;
+    const before=game.ballSpeed();
+    game.moveBall(.001);
+    assert.equal(Math.sign(game.ball.vy),sign);
+    assert.ok(Math.abs(game.ball.vy)>=before*.2-.01);
+    assert.ok(Math.abs(game.ballSpeed()-before)<.001);
+  }
+});
+
+test('0.3: подсказки бонусов и серии не требуют новых внешних элементов', () => {
+  const {game,elements}=createEnvironment();
+  game.launch();game.launch();
+  game.hitBrick(game.bricks[0],0);
+  game.hitBrick(game.bricks[0],0);
+  game.applyDrop('wide');
+  game.applyDrop('slow');
+  game.energy=100;game.pulse();
+  assert.doesNotThrow(()=>game.drawGameplayStatus());
+  assert.equal(game.comboHits,2);
+  assert.ok(game.timers.wide>0&&game.timers.slow>0&&game.timers.pulse>0);
+  assert.equal(elements.get('compactSector').textContent,'01/03');
+  assert.equal(game.paddle.w,145);
+});
