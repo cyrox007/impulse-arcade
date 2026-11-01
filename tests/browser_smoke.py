@@ -39,6 +39,7 @@ with sync_playwright() as pw:
         page.add_style_tag(content=css)
         page.add_script_tag(content=js)
         assert page.evaluate('window.__impulseDebug().state') == 'menu'
+        assert page.locator('#compactSector').inner_text() == '01/03'
         assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'mobile-ui-02-20261101'
         assert page.locator('.eyebrow').inner_text() == 'АРКАДА • UI 0.2'
         assert page.evaluate('document.documentElement.scrollWidth') <= width
@@ -68,6 +69,7 @@ with sync_playwright() as pw:
             assert metrics['hudBottom'] < metrics['canvasTop'] + 65, metrics
             assert metrics['controlsBottom'] <= height + 1, metrics
             assert not metrics['footerVisible'], metrics
+            assert page.locator('#compactSector').is_visible()
             print(f"{label} arena={metrics['canvasWidth']:.1f}x{metrics['canvasHeight']:.1f}")
         else:
             assert page.evaluate('document.querySelector("#game").getBoundingClientRect().width') >= 200
