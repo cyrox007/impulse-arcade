@@ -33,7 +33,7 @@ const ui = {
   pulse:document.getElementById('pulseBtn'),pulseLabel:document.getElementById('pulseLabel'),
   pause:document.getElementById('pauseBtn'),sound:document.getElementById('soundBtn'),
   settingsButton:document.getElementById('settingsBtn'),settingsPanel:document.getElementById('settingsPanel'),
-  settingsClose:document.getElementById('settingsClose'),volume:document.getElementById('volumeRange'),
+  settingsClose:document.getElementById('settingsClose'),settingsDone:document.getElementById('settingsDone'),volume:document.getElementById('volumeRange'),
   volumeText:document.getElementById('volumeValue'),effects:document.getElementById('effectsSelect'),
   sensitivity:document.getElementById('sensitivityRange'),
   sensitivityText:document.getElementById('sensitivityValue')
@@ -129,7 +129,7 @@ class Game {
   constructor(){
     this.frame=0;this.state='menu';this.score=0;this.best=safeLoadBest();this.checkpoint=safeLoadCheckpoint();this.lives=3;this.level=0;
     this.energy=0;this.bricks=[];this.drops=[];this.particles=[];this.waves=[];this.enemyShots=[];this.boss=null;this.sectorPhase='bricks';this.keys={};this.activePointerId=null;
-    this.settings=safeLoadSettings();this.settingsOpen=false;
+    this.settings=safeLoadSettings();this.settingsOpen=false;ui.settingsPanel.hidden=true;
     this.reducedMotion=this.settings.effects==='reduced'||
       (this.settings.effects==='auto'&&Boolean(window.matchMedia&&
         window.matchMedia('(prefers-reduced-motion: reduce)').matches));
@@ -319,7 +319,7 @@ class Game {
     this.setState('playing');this.hideOverlay();beep(430,.09);
   }
   togglePause(){
-    if(this.state==='paused'){this.resume();return}
+    if(this.state==='paused'){if(!this.settingsOpen)this.resume();return}
     if(this.state==='playing'||this.state==='ready'){
       this.savedState=this.state;this.setState('paused');this.showOverlay('pause');
     }
@@ -1301,6 +1301,7 @@ ui.sound.addEventListener('click',()=>{
 });
 ui.settingsButton.addEventListener('click',()=>game.toggleSettings());
 ui.settingsClose.addEventListener('click',()=>game.toggleSettings(false));
+ui.settingsDone.addEventListener('click',()=>game.toggleSettings(false));
 ui.volume.addEventListener('input',()=>game.setSetting('volume',ui.volume.value));
 ui.effects.addEventListener('change',()=>game.setSetting('effects',ui.effects.value));
 ui.sensitivity.addEventListener('input',()=>game.setSetting('sensitivity',ui.sensitivity.value));
