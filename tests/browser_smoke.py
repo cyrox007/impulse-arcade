@@ -40,8 +40,8 @@ with sync_playwright() as pw:
         page.add_script_tag(content=js)
         assert page.evaluate('window.__impulseDebug().state') == 'menu'
         assert page.locator('#compactSector').inner_text() == '01/03'
-        assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'gameplay-04-fx-20261101'
-        assert page.locator('.eyebrow').inner_text() == 'АРКАДА • ИГРА 0.4.1'
+        assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'gameplay-05-20261101'
+        assert page.locator('.eyebrow').inner_text() == 'АРКАДА • ИГРА 0.5'
         assert page.evaluate('document.documentElement.scrollWidth') <= width
         geometry = page.evaluate('''() => {
             const box = s => document.querySelector(s).getBoundingClientRect();
@@ -101,7 +101,7 @@ with sync_playwright() as pw:
         assert combo_stats['multiplier'] == 2, combo_stats
         assert combo_stats['gain'] >= 500, combo_stats
         assert combo_stats['timers']['wide'] > 0 and combo_stats['timers']['pulse'] > 0, combo_stats
-        assert combo_stats['marker'] == 'gameplay-04-fx-20261101', combo_stats
+        assert combo_stats['marker'] == 'gameplay-05-20261101', combo_stats
         specials = page.evaluate("""() => {
             game.level=1;game.startLevel();game.launch();
             const blast=game.bricks.find(b=>b.type==='blast');
@@ -140,6 +140,33 @@ with sync_playwright() as pw:
         assert visual_fx['shards'] and visual_fx['normalWave'], visual_fx
         assert visual_fx['coreWaves'] and visual_fx['explosion'], visual_fx
         assert visual_fx['waves'] <= 24 and visual_fx['particles'] <= 180, visual_fx
+        guardian_stats = page.evaluate("""() => {
+            game.level=2;game.startLevel();game.launch();game.draw();
+            const moving=game.bricks.find(b=>b.type==='moving');
+            const startX=moving.x,paintBefore=game.brickPaintCount;
+            for(let i=0;i<60;i++){game.updateMovingBricks(1/60);game.draw()}
+            const moved=moving.x!==startX,cache=game.brickPaintCount===paintBefore;
+            game.bricks=[];game.checkStageCompletion();game.draw();
+            const spawned=game.boss&&game.boss.hp===6&&game.state==='playing';
+            let hits=0;
+            while(game.boss&&hits<10){
+                const boss=game.boss;
+                boss.phaseTime=0;boss.lock=0;
+                game.ball.x=boss.x+boss.w/2;
+                game.ball.y=boss.y+boss.h+game.ball.r+.4;
+                game.ball.vx=0;game.ball.vy=-game.levelSpeed();
+                game.moveBall(.004);hits++;
+            }
+            const won=game.state==='won'&&game.sectorPhase==='finished';
+            const overlay=document.querySelector('#overlay').textContent;
+            game.launch();game.launch(); // Restore ongoing play for the pause/blur checks below.
+            return {moved,cache,spawned,hits,won,
+                    overlay:overlay.includes('СТРАЖ'),restored:game.state==='playing'};
+        }""")
+        assert guardian_stats['moved'] and guardian_stats['cache'], guardian_stats
+        assert guardian_stats['spawned'] and guardian_stats['hits'] == 6, guardian_stats
+        assert guardian_stats['won'] and guardian_stats['overlay'] and guardian_stats['restored'], guardian_stats
+
         page.locator('#pauseBtn').click()
         assert page.evaluate('window.__impulseDebug().state') == 'paused'
         page.locator('#overlayAction').click()
