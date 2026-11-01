@@ -807,7 +807,12 @@ class Game {
       beep(275+Math.abs(relative)*180,.055,.023);
     }
     for(let i=this.bricks.length-1;i>=0;i--){
-      const brick=this.bricks[i];if(brick.lock>0)continue;
+      // Blast damage can delete several neighbours while this loop is active.
+      // The array may shrink by more than one position: never dereference a
+      // now-missing index, especially during a piercing multi-ball impulse.
+      const brick=this.bricks[i];
+      if(!brick)continue;
+      if(brick.lock>0)continue;
       const closeX=clamp(b.x,brick.x,brick.x+brick.w),closeY=clamp(b.y,brick.y,brick.y+brick.h);
       if((b.x-closeX)**2+(b.y-closeY)**2>b.r**2)continue;
       const sided=brick.type==='directional';
