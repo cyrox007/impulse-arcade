@@ -443,30 +443,45 @@ class Game {
       if((b.x-closeX)**2+(b.y-closeY)**2>b.r**2)continue;
       const pierced=this.timers.pulse>0;
       if(this.hitBrick(brick,i)&&!pierced){
-        const fromTop=prevY+b.r<=brick.y;
-        const fromBottom=prevY-b.r>=brick.y+brick.h;
-        const fromLeft=prevX+b.r<=brick.x;
-        const fromRight=prevX-b.r>=brick.x+brick.w;
-        // Use the previous ball edge, not the centre, to resolve brick sides.
-        const dx=Math.min(b.x+b.r-brick.x,brick.x+brick.w-b.x+b.r);
-        const dy=Math.min(b.y+b.r-brick.y,brick.y+brick.h-b.y+b.r);
-        if((fromLeft||fromRight)&&(!fromTop&&!fromBottom||dx<dy)){
-          if(fromLeft){b.x=brick.x-b.r-1;b.vx=-Math.abs(b.vx)}
-          else{b.x=brick.x+brick.w+b.r+1;b.vx=Math.abs(b.vx)}
-        }else if(fromTop){b.y=brick.y-b.r-1;b.vy=-Math.abs(b.vy)}
-        else if(fromBottom){b.y=brick.y+brick.h+b.r+1;b.vy=Math.abs(b.vy)}
-        else if(dx<dy){
-          if(b.x<brick.x+brick.w/2){b.x=brick.x-b.r-1;b.vx=-Math.abs(b.vx)}
-          else{b.x=brick.x+brick.w+b.r+1;b.vx=Math.abs(b.vx)}
-        }else{
-          if(b.y<brick.y+brick.h/2){b.y=brick.y-b.r-1;b.vy=-Math.abs(b.vy)}
-          else{b.y=brick.y+brick.h+b.r+1;b.vy=Math.abs(b.vy)}
-        }
+        this.reflectBallFromRect(brick,prevX,prevY);
         break;
       }
       if(this.state!=='playing')break;
     }
+    if(this.boss&&this.state==='playing'){
+      const guardian=this.boss;
+      const closeX=clamp(b.x,guardian.x,guardian.x+guardian.w);
+      const closeY=clamp(b.y,guardian.y,guardian.y+guardian.h);
+      if((b.x-closeX)**2+(b.y-closeY)**2<=b.r*b.r){
+        const vulnerable=this.guardianVulnerable();
+        if(guardian.lock<=0&&vulnerable)this.damageGuardian();
+        // A shielded guardian always reflects. Pulse pierces only when exposed.
+        if(this.state==='playing'&&(!vulnerable||this.timers.pulse<=0))
+          this.reflectBallFromRect(guardian,prevX,prevY);
+      }
+    }
     if(this.state==='playing')this.stabilizeBallAngle();
+  }
+  reflectBallFromRect(rect,prevX,prevY){
+    const b=this.ball;
+    const fromTop=prevY+b.r<=rect.y;
+    const fromBottom=prevY-b.r>=rect.y+rect.h;
+    const fromLeft=prevX+b.r<=rect.x;
+    const fromRight=prevX-b.r>=rect.x+rect.w;
+    const dx=Math.min(b.x+b.r-rect.x,rect.x+rect.w-b.x+b.r);
+    const dy=Math.min(b.y+b.r-rect.y,rect.y+rect.h-b.y+b.r);
+    if((fromLeft||fromRight)&&(!fromTop&&!fromBottom||dx<dy)){
+      if(fromLeft){b.x=rect.x-b.r-1;b.vx=-Math.abs(b.vx)}
+      else{b.x=rect.x+rect.w+b.r+1;b.vx=Math.abs(b.vx)}
+    }else if(fromTop){b.y=rect.y-b.r-1;b.vy=-Math.abs(b.vy)}
+    else if(fromBottom){b.y=rect.y+rect.h+b.r+1;b.vy=Math.abs(b.vy)}
+    else if(dx<dy){
+      if(b.x<rect.x+rect.w/2){b.x=rect.x-b.r-1;b.vx=-Math.abs(b.vx)}
+      else{b.x=rect.x+rect.w+b.r+1;b.vx=Math.abs(b.vx)}
+    }else{
+      if(b.y<rect.y+rect.h/2){b.y=rect.y-b.r-1;b.vy=-Math.abs(b.vy)}
+      else{b.y=rect.y+rect.h+b.r+1;b.vy=Math.abs(b.vy)}
+    }
   }
   statsSummary(){
     return 'Время: '+Math.floor(this.runStats.seconds)+' с · Попадания: '+this.runStats.hits+
@@ -475,10 +490,10 @@ class Game {
   }
   overlayContent(kind){
     const common={
-      intro:{icon:'✦',kicker:'НОВАЯ АРКАДА',title:'ИМПУЛЬС',text:'Разрушай блоки, собирай усиления и заряжай пробивной импульс. Три сектора ждут тебя.',action:'НАЧАТЬ ИГРУ',small:'На телефоне двигай платформу пальцем по полю. На ПК — мышь или стрелки.'},
+      intro:{icon:'✦',kicker:'НОВАЯ АРКАДА',title:'ИМПУЛЬС',text:'Разрушай блоки, собирай усиления и заряжай пробивной импульс. В третьем секторе тебя ждёт Страж ядра.',action:'НАЧАТЬ ИГРУ',small:'На телефоне двигай платформу пальцем по полю. На ПК — мышь или стрелки.'},
       pause:{icon:'Ⅱ',kicker:'ИГРА ПРИОСТАНОВЛЕНА',title:'ПАУЗА',text:'Шар ждёт твоего возвращения.',action:'ПРОДОЛЖИТЬ',small:'Клавиша P — пауза / продолжить.'},
       between:{icon:'✧',kicker:'СЕКТОР ОЧИЩЕН',title:'ОТЛИЧНАЯ РАБОТА',text:`Следующий сектор: ${LEVELS[this.level+1]?.name ?? 'ФИНАЛ'}. Бонус за жизни: +${this.lastSectorBonus}. Лучшая серия: ${this.lastSectorBestCombo}. Жизни и счёт сохраняются.`,action:'СЛЕДУЮЩИЙ СЕКТОР',small:'Впереди более прочные блоки.'},
-      won:{icon:'★',kicker:'МИССИЯ ВЫПОЛНЕНА',title:'ТРИ СЕКТОРА ПРОЙДЕНЫ',text:`Финальный счёт: ${this.score.toLocaleString('ru-RU')}. Бонус финального сектора: +${this.lastSectorBonus}. Твой рекорд: ${this.best.toLocaleString('ru-RU')}.`,action:'СЫГРАТЬ СНОВА',small:this.statsSummary()},
+      won:{icon:'★',kicker:'МИССИЯ ВЫПОЛНЕНА',title:'ТРИ СЕКТОРА И СТРАЖ ПРОЙДЕНЫ',text:`Финальный счёт: ${this.score.toLocaleString('ru-RU')}. Бонус финального сектора: +${this.lastSectorBonus}. Твой рекорд: ${this.best.toLocaleString('ru-RU')}.`,action:'СЫГРАТЬ СНОВА',small:this.statsSummary()},
       lost:{icon:'✕',kicker:'ПОПЫТКА ЗАВЕРШЕНА',title:'ИГРА ОКОНЧЕНА',text:`Ты набрал ${this.score.toLocaleString('ru-RU')} очков. Попробуй ещё раз!`,action:'НОВАЯ ПОПЫТКА',small:this.statsSummary()}
     }[kind];
     return `<div class="overlay-icon" aria-hidden="true">${common.icon}</div><div class="overlay-kicker">${common.kicker}</div><h2>${common.title}</h2><p>${common.text}</p><button type="button" class="overlay-action" id="overlayAction">${common.action}</button><div class="overlay-small">${common.small}</div>`;
@@ -521,7 +536,7 @@ class Game {
       this.drawBricks(ctx);
       this.bricksDirty=false;
     }
-    this.drawDrops();this.drawParticles();this.drawWaves();this.drawShield();this.drawPaddle();this.drawBall();this.drawGameplayStatus();
+    this.drawMovingBricks();this.drawGuardian();this.drawDrops();this.drawParticles();this.drawWaves();this.drawShield();this.drawPaddle();this.drawBall();this.drawGameplayStatus();
     if(this.flash>0){ctx.fillStyle=`rgba(252,114,201,${Math.min(.2,this.flash*.4)})`;ctx.fillRect(0,0,w,h)}
     // Opt-in on-device FPS overlay: ?fps=1 (no clutter during normal play).
     if(this.profileEnabled){
@@ -544,6 +559,7 @@ class Game {
     if(this.timers.slow>0)effects.push(`ЗАМЕДЛ. ${Math.ceil(this.timers.slow)}с`);
     if(this.timers.pulse>0)effects.push(`ИМПУЛЬС ${Math.ceil(this.timers.pulse)}с`);
     if(this.shieldCharges>0)effects.push('БАРЬЕР ×1');
+    if(this.boss)effects.push('СТРАЖ '+this.boss.hp+'/'+this.boss.maxHp);
     if(effects.length){
       ctx.fillStyle='#a4f5ed';ctx.font='11px system-ui';
       ctx.fillText(effects.join(' · '),CFG.left+9,94);
@@ -566,6 +582,7 @@ class Game {
   }
   drawBricks(target=ctx){
     this.brickPaintCount++;for(const brick of this.bricks){
+    if(brick.type==='moving')continue;
     let c1,c2,stroke;
     if(brick.type==='core'){c1='#ff7abb';c2='#a541a5';stroke='#ffb7dd'}
     else if(brick.type==='armor'){c1='#e4ba79';c2='#825e6d';stroke='#fff0a5'}
@@ -580,6 +597,26 @@ class Game {
     if(brick.type==='blast'){target.fillStyle='#fff6dd';target.font='bold 17px system-ui';target.textAlign='center';target.fillText('✶',brick.x+brick.w/2,brick.y+18)}
     if(brick.type==='core'){target.fillStyle='#fff2ff';target.beginPath();target.moveTo(brick.x+brick.w/2,brick.y+5);target.lineTo(brick.x+brick.w/2+8,brick.y+brick.h/2);target.lineTo(brick.x+brick.w/2,brick.y+brick.h-5);target.lineTo(brick.x+brick.w/2-8,brick.y+brick.h/2);target.fill()}
   }}
+  drawMovingBricks(){
+    // A few flat-color moving targets are cheap and do not invalidate brickLayer.
+    for(const brick of this.bricks){
+      if(brick.type!=='moving')continue;
+      roundRect(brick.x,brick.y,brick.w,brick.h,5,'#23565f','#89ffde');
+      ctx.fillStyle='#dcfff6';ctx.font='bold 15px system-ui';ctx.textAlign='center';
+      ctx.fillText('⇄',brick.x+brick.w/2,brick.y+18);
+    }
+  }
+  drawGuardian(){
+    const boss=this.boss;if(!boss)return;
+    const vulnerable=this.guardianVulnerable();
+    roundRect(boss.x,boss.y,boss.w,boss.h,8,vulnerable?'#793c90':'#304264',
+      vulnerable?'#ffa9f4':'#83bff5');
+    ctx.fillStyle='#fff0ff';ctx.font='bold 14px system-ui';ctx.textAlign='center';
+    ctx.fillText(vulnerable?'СТРАЖ ЯДРА':'ЗАЩИТА',boss.x+boss.w/2,boss.y+25);
+    ctx.fillStyle='#172238';ctx.fillRect(boss.x,boss.y-13,boss.w,5);
+    ctx.fillStyle=vulnerable?'#ff8be3':'#80bded';
+    ctx.fillRect(boss.x,boss.y-13,boss.w*boss.hp/boss.maxHp,5);
+  }
   drawDrops(){for(const d of this.drops){
     const color=d.type==='wide'?'#6bf9bc':d.type==='slow'?'#81c6ff':d.type==='shield'?'#88ffd6':'#ff83a9';
     ctx.shadowColor=color;ctx.shadowBlur=14;roundRect(d.x-13,d.y-13,26,26,8,'#192643',color);ctx.shadowBlur=0;
@@ -743,4 +780,4 @@ function loop(now){
 }
 requestAnimationFrame(loop);
 // Expose a read-only diagnostic snapshot for automated smoke tests, no gameplay cheats.
-window.__impulseDebug=()=>({state:game.state,score:game.score,level:game.level,lives:game.lives,bricks:game.bricks.length,energy:game.energy,combo:game.comboHits,fps:game.performance.fps,maxFrameMs:game.performance.maxFrameMs,avgUpdateMs:game.performance.avgUpdateMs,avgDrawMs:game.performance.avgDrawMs,spritePaintCount:game.spritePaintCount,shield:game.shieldCharges,particles:game.particles.length,waves:game.waves.length,stats:{...game.runStats}});
+window.__impulseDebug=()=>({state:game.state,score:game.score,level:game.level,lives:game.lives,bricks:game.bricks.length,energy:game.energy,combo:game.comboHits,fps:game.performance.fps,maxFrameMs:game.performance.maxFrameMs,avgUpdateMs:game.performance.avgUpdateMs,avgDrawMs:game.performance.avgDrawMs,spritePaintCount:game.spritePaintCount,moving:game.bricks.filter(b=>b.type==='moving').length,phase:game.sectorPhase,bossHP:game.boss?.hp??0,shield:game.shieldCharges,particles:game.particles.length,waves:game.waves.length,stats:{...game.runStats}});
