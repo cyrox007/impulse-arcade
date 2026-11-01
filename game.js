@@ -61,7 +61,7 @@ function safeSaveBest(value){try{localStorage.setItem(CFG.storageKey,String(valu
 class Game {
   constructor(){
     this.frame=0;this.state='menu';this.score=0;this.best=safeLoadBest();this.lives=3;this.level=0;
-    this.energy=0;this.bricks=[];this.drops=[];this.particles=[];this.keys={};this.pointerActive=false;
+    this.energy=0;this.bricks=[];this.drops=[];this.particles=[];this.keys={};this.activePointerId=null;
     this.paddle={x:CFG.width/2,w:CFG.paddleW,y:CFG.paddleY,h:CFG.paddleH};this.targetX=this.paddle.x;
     this.ball={x:CFG.width/2,y:CFG.paddleY-14,vx:0,vy:0,r:CFG.ballRadius,trail:[]};
     this.timers={pulse:0,wide:0,slow:0};this.time=0;this.flash=0;
@@ -219,7 +219,9 @@ class Game {
     if(b.vy>0&&b.y+b.r>=this.paddle.y&&prevY+b.r<=this.paddle.y+5&&Math.abs(b.x-this.paddle.x)<=this.paddle.w/2+b.r){
       b.y=this.paddle.y-b.r-1;
       const relative=clamp((b.x-this.paddle.x)/(this.paddle.w/2),-.94,.94),speed=clamp(this.ballSpeed()*1.017,CFG.initialSpeed,CFG.maxSpeed);
-      const angle=relative*1.11;
+      let angle=relative*1.11;
+      // Centre hits should not lock the ball into a vertical loop.
+      if(Math.abs(angle)<.12)angle=(b.vx<0?-1:1)*.12;
       b.vx=speed*Math.sin(angle);b.vy=-Math.abs(speed*Math.cos(angle));
       beep(275+Math.abs(relative)*180,.055,.023);
     }
@@ -229,11 +231,25 @@ class Game {
       if((b.x-closeX)**2+(b.y-closeY)**2>b.r**2)continue;
       const pierced=this.timers.pulse>0;
       if(this.hitBrick(brick,i)&&!pierced){
-        if(prevY+b.r<=brick.y){b.y=brick.y-b.r-1;b.vy=-Math.abs(b.vy)}
-        else if(prevY-b.r>=brick.y+brick.h){b.y=brick.y+brick.h+b.r+1;b.vy=Math.abs(b.vy)}
-        else if(prevX<brick.x){b.x=brick.x-b.r-1;b.vx=-Math.abs(b.vx)}
-        else if(prevX>brick.x+brick.w){b.x=brick.x+brick.w+b.r+1;b.vx=Math.abs(b.vx)}
-        else b.vy=-b.vy;
+        const fromTop=prevY+b.r<=brick.y;
+        const fromBottom=prevY-b.r>=brick.y+brick.h;
+        const fromLeft=prevX+b.r<=brick.x;
+        const fromRight=prevX-b.r>=brick.x+brick.w;
+        // Use the previous ball edge, not the centre, to resolve brick sides.
+        const dx=Math.min(b.x+b.r-brick.x,brick.x+brick.w-b.x+b.r);
+        const dy=Math.min(b.y+b.r-brick.y,brick.y+brick.h-b.y+b.r);
+        if((fromLeft||fromRight)&&(!fromTop&&!fromBottom||dx<dy)){
+          if(fromLeft){b.x=brick.x-b.r-1;b.vx=-Math.abs(b.vx)}
+          else{b.x=brick.x+brick.w+b.r+1;b.vx=Math.abs(b.vx)}
+        }else if(fromTop){b.y=brick.y-b.r-1;b.vy=-Math.abs(b.vy)}
+        else if(fromBottom){b.y=brick.y+brick.h+b.r+1;b.vy=Math.abs(b.vy)}
+        else if(dx<dy){
+          if(b.x<brick.x+brick.w/2){b.x=brick.x-b.r-1;b.vx=-Math.abs(b.vx)}
+          else{b.x=brick.x+brick.w+b.r+1;b.vx=Math.abs(b.vx)}
+        }else{
+          if(b.y<brick.y+brick.h/2){b.y=brick.y-b.r-1;b.vy=-Math.abs(b.vy)}
+          else{b.y=brick.y+brick.h+b.r+1;b.vy=Math.abs(b.vy)}
+        }
         break;
       }
       if(this.state!=='playing')break;
@@ -322,16 +338,20 @@ const pointerToX=e=>{
   game.targetX=clamp((e.clientX-rect.left)*(CFG.width/rect.width),CFG.left+game.paddle.w/2,CFG.right-game.paddle.w/2);
 };
 canvas.addEventListener('pointerdown',e=>{
+  if(game.activePointerId!==null)return; // Ignore additional simultaneous fingers.
   if(e.pointerType==='touch'&&e.cancelable)e.preventDefault();
-  pointerToX(e);game.pointerActive=true;
+  game.activePointerId=e.pointerId;
+  pointerToX(e);
   try{canvas.setPointerCapture(e.pointerId)}catch(_){}
   if(game.state==='ready')game.launch();
 });
 canvas.addEventListener('pointermove',e=>{
-  if(e.pointerType==='mouse'||game.pointerActive)pointerToX(e);
+  if(e.pointerId===game.activePointerId || (e.pointerType==='mouse'&&game.activePointerId===null))pointerToX(e);
 });
-const releasePointer=()=>{game.pointerActive=false};
-canvas.addEventListener('pointerup',releasePointer);canvas.addEventListener('pointercancel',releasePointer);
+const releasePointer=e=>{if(e.pointerId===game.activePointerId)game.activePointerId=null};
+canvas.addEventListener('pointerup',releasePointer);
+canvas.addEventListener('pointercancel',releasePointer);
+canvas.addEventListener('lostpointercapture',releasePointer);
 ui.launch.addEventListener('click',()=>game.launch());
 ui.pulse.addEventListener('click',()=>game.pulse());
 ui.pause.addEventListener('click',()=>game.togglePause());
@@ -350,8 +370,8 @@ window.addEventListener('keydown',e=>{
   if(e.code==='KeyP'||e.code==='Escape')game.togglePause();
 });
 window.addEventListener('keyup',e=>{game.keys[e.code]=false});
-window.addEventListener('blur',()=>{game.keys={};if(game.state==='playing')game.togglePause()});
-document.addEventListener('visibilitychange',()=>{if(document.hidden&&game.state==='playing')game.togglePause()});
+window.addEventListener('blur',()=>{game.keys={};game.activePointerId=null;if(game.state==='playing')game.togglePause()});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){game.keys={};game.activePointerId=null;if(game.state==='playing')game.togglePause()}});
 let last=performance.now();
 function loop(now){
   const dt=Math.min(.033,Math.max(0,(now-last)/1000));last=now;
