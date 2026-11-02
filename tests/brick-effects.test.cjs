@@ -496,3 +496,56 @@ test('0.5.1: новые маршруты не требуют перерисов�
   assert.equal(game.bricksDirty,false);
 });
 
+
+test('0.3: остаток кирпичей виден до босса, итоги используют общую статистику забега', () => {
+  const {game,elements} = createEnvironment();
+  game.launch();
+  game.launch();
+  const total = game.bricks.length;
+  assert.match(elements.get('stageLabel').textContent, new RegExp(total + ' БЛОКОВ'));
+
+  game.hitBrick(game.bricks[0], 0);
+  assert.match(elements.get('stageLabel').textContent, new RegExp((total - 1) + ' БЛОКОВ'));
+  game.runStats.seconds = 65.9;
+  game.runStats.pulses = 2;
+  game.runStats.maxCombo = 4;
+  game.runStats.barriers = 1;
+  game.runStats.splits = 2;
+
+  // В паузе счётчики не изменяются, а экран поражения показывает тот же объект.
+  game.togglePause();
+  const seconds = game.runStats.seconds;
+  game.update(.03);
+  assert.equal(game.runStats.seconds, seconds);
+  game.resume();
+  game.end('lost');
+  const overlay = elements.get('overlay').innerHTML;
+  assert.match(overlay, /class="run-stats"/);
+  assert.match(overlay, /Статистика забега/);
+  assert.match(overlay, /1:05/);
+  assert.match(overlay, /БЛОКОВ/);
+  assert.match(overlay, /ЛУЧШАЯ СЕРИЯ/);
+  assert.match(overlay, /ПОПАДАНИЯ: 1/);
+  assert.match(overlay, /ИМПУЛЬСЫ: 2/);
+  assert.match(overlay, /СПАСЕНИЯ: 1/);
+  assert.match(overlay, /РАЗДЕЛЕНИЯ: 2/);
+  assert.doesNotMatch(game.overlayContent('pause'), /class="run-stats"/);
+
+  game.launch();
+  assert.equal(game.runStats.seconds, 0);
+  assert.equal(game.runStats.hits, 0);
+  assert.equal(game.runStats.broken, 0);
+});
+
+test('0.3: индикатор кирпичей исчезает в бою с боссом', () => {
+  const {game,elements} = createEnvironment();
+  game.launch();
+  game.level = 2;
+  game.startLevel();
+  game.launch();
+  assert.match(elements.get('stageLabel').textContent, /БЛОКОВ/);
+  game.bricks = [];
+  game.checkStageCompletion();
+  assert.equal(game.sectorPhase, 'guardian');
+  assert.doesNotMatch(elements.get('stageLabel').textContent, /БЛОКОВ/);
+});
