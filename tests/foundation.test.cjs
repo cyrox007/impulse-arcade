@@ -416,7 +416,7 @@ test('физический модуль сохраняет геометрию и
   const model = readFileSync(path.join(root, 'game.js'), 'utf8');
   // Физика должна существовать только в одном файле, а не дублироваться в Game.
   assert.match(module, /const IMPULSE_PHYSICS_METHODS =/);
-  assert.match(model, /Object\.assign\(Game\.prototype,IMPULSE_PHYSICS_METHODS\)/);
+  assert.match(model, /Object\.assign\(\s*Game\.prototype,\s*IMPULSE_PHYSICS_METHODS\)/);
   assert.doesNotMatch(model, /^  moveBall\(/m);
   assert.doesNotMatch(model, /^  reflectBallFromRect\(/m);
   assert.equal(typeof game.moveBall, 'function');
