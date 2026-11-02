@@ -512,3 +512,19 @@ test('физический модуль сохраняет геометрию и
   assert.equal(game.collisionSide(block, 92, 110, { x: 106, y: 110, r: 8 }), 'L');
   assert.equal(game.collisionSide(block, 158, 110, { x: 145, y: 110, r: 8 }), 'R');
 });
+
+
+test('резервная публикация Pages включает все подключённые модули игры', () => {
+  const html = readFileSync(path.join(root, 'index.html'), 'utf8');
+  const workflow = readFileSync(path.join(root, '.github/workflows/pages.yml'), 'utf8');
+  const scripts = [...html.matchAll(/<script src="([^"]+)"/g)].map(match =>
+    match[1].split('?')[0]
+  );
+
+  assert.equal(scripts.length, 9, 'в игре должно подключаться девять скриптов');
+  assert.match(workflow, /cp index\.html game\*\.js style\.css pages-dist\//);
+  for (const file of scripts) {
+    assert.match(file, /^game(?:-[\w-]+)?\.js$/, 'публикуются только игровые модули');
+    assert.ok(readFileSync(path.join(root, file), 'utf8').length > 0);
+  }
+});
