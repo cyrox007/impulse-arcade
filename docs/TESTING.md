@@ -3,10 +3,12 @@
 ## Быстрый прогон
 
 ```bash
+npm ci
+npm run format:check
 npm run check
 ```
 
-Команда проверяет синтаксис всех девяти игровых JS-файлов (`game-storage`, `game-ui`, `game-physics`, `game-bricks`, `game-bosses`, `game-effects`, `game-render`, `game`, `game-input`) и запускает Node.js `node:test`. Минимум Node.js 20, сторонних npm-зависимостей для самой игры нет.
+Проверка форматирования проверяет все игровые JS-модули, Node-тесты, HTML и CSS. Затем `npm run check` проверяет синтаксис всех девяти игровых JS-файлов (`game-storage`, `game-ui`, `game-physics`, `game-bricks`, `game-bosses`, `game-effects`, `game-render`, `game`, `game-input`) и запускает Node.js `node:test`. Минимум Node.js 20, сторонних npm-зависимостей для самой игры нет.
 
 Наборы тестов разделены по ответственности:
 
