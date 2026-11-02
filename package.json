@@ -5,7 +5,7 @@
   "description": "ИМПУЛЬС — автономный браузерный арканоид",
   "scripts": {
     "test": "node --test tests/*.test.cjs",
-    "check": "node --check game-storage.js && node --check game-ui.js && node --check game-physics.js && node --check game-bosses.js && node --check game-effects.js && node --check game-render.js && node --check game.js && node --check game-input.js && npm test"
+    "check": "node --check game-storage.js && node --check game-ui.js && node --check game-physics.js && node --check game-bricks.js && node --check game-bosses.js && node --check game-effects.js && node --check game-render.js && node --check game.js && node --check game-input.js && npm test"
   },
   "engines": {"node": ">=20"}
 }

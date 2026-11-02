@@ -549,3 +549,28 @@ test('0.3: индикатор кирпичей исчезает в бою с б�
   assert.equal(game.sectorPhase, 'guardian');
   assert.doesNotMatch(elements.get('stageLabel').textContent, /БЛОКОВ/);
 });
+
+
+test('разделение кирпичей и волн не дублирует логику в Game', () => {
+  const {game} = createEnvironment();
+  const brickSource = readFileSync(path.join(root,'game-bricks.js'),'utf8');
+  const renderSource = readFileSync(path.join(root,'game-render.js'),'utf8');
+  const modelSource = readFileSync(path.join(root,'game.js'),'utf8');
+  assert.match(brickSource, /const IMPULSE_BRICK_METHODS =/);
+  assert.match(renderSource, /^  drawWaves\(/m);
+  assert.doesNotMatch(modelSource, /^  hitBrick\(/m);
+  assert.doesNotMatch(modelSource, /^  makeBricks\(/m);
+  assert.doesNotMatch(modelSource, /^  drawWaves\(/m);
+  assert.match(modelSource, /Object\.assign\(Game\.prototype,IMPULSE_BRICK_METHODS\)/);
+
+  game.launch();
+  game.launch();
+  assert.ok(game.bricks.length>0);
+  const brick=game.bricks.find(item=>item.type==='normal');
+  const count=game.bricks.length;
+  assert.equal(game.hitBrick(brick,game.bricks.indexOf(brick)),true);
+  assert.equal(game.bricks.length,count-1);
+
+  game.addWave(120,130,'#fff',20,.2);
+  assert.doesNotThrow(()=>game.drawWaves());
+});

@@ -8,7 +8,42 @@
  */
 'use strict';
 
+function roundRect(x,y,w,h,r,fillStyle,strokeStyle,target=ctx){
+  target.beginPath();target.roundRect(x,y,w,h,r);
+  if(fillStyle){target.fillStyle=fillStyle;target.fill()}
+  if(strokeStyle){target.strokeStyle=strokeStyle;target.stroke()}
+}
+// Кэшируем слои 480×720: дорогие тени и градиенты перерисовываются только при изменении состояния.
+function createLayer(width=CFG.width,height=CFG.height){
+  if(typeof document.createElement!=='function')return null;
+  const layer=document.createElement('canvas');layer.width=width;layer.height=height;
+  const target=layer.getContext('2d');
+  return target?{canvas:layer,ctx:target}:null;
+}
+
+
 const IMPULSE_RENDER_METHODS = {
+  drawWaves(){
+    for(const wave of this.waves){
+      const progress=1-wave.life/wave.duration;
+      const radius=4+wave.radius*progress;
+      ctx.globalAlpha=(1-progress)*.8;
+      ctx.strokeStyle=wave.color;ctx.lineWidth=wave.width*(1-progress*.55);
+      ctx.beginPath();ctx.arc(wave.x,wave.y,radius,0,Math.PI*2);ctx.stroke();
+      if(wave.kind==='burst'){
+        // Четыре направленных световых штриха без градиентов, создаваемых в каждом кадре.
+        const start=radius*.55,end=radius+12*(1-progress);
+        ctx.beginPath();
+        ctx.moveTo(wave.x-start,wave.y);ctx.lineTo(wave.x-end,wave.y);
+        ctx.moveTo(wave.x+start,wave.y);ctx.lineTo(wave.x+end,wave.y);
+        ctx.moveTo(wave.x,wave.y-start);ctx.lineTo(wave.x,wave.y-end);
+        ctx.moveTo(wave.x,wave.y+start);ctx.lineTo(wave.x,wave.y+end);
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha=1;ctx.lineWidth=1;
+  },
+
   draw(){
     const w=CFG.width,h=CFG.height;
     if(this.backdropLayer)ctx.drawImage(this.backdropLayer.canvas,0,0);
