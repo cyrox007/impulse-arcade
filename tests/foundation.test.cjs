@@ -106,10 +106,12 @@ test('ограничение положения платформы и захва
 test('статический сайт не зависит от внешних JS/CSS и имеет мета-описание', () => {
   const html = readFileSync(path.join(root,'index.html'),'utf8');
   assert.match(html, /name="description"/);
+  assert.match(html, /src="game-physics\.js\?v=gameplay-100rc-20261101"/);
   assert.match(html, /src="game-render\.js\?v=gameplay-100rc-20261101"/);
   assert.match(html, /src="game\.js\?v=gameplay-100rc-20261101"/);
   assert.match(html, /src="game-input\.js\?v=gameplay-100rc-20261101"/);
   assert.ok(html.indexOf("game.js") < html.indexOf("game-input.js"), "управление загружается после модели");
+  assert.ok(html.indexOf("game-physics.js") < html.indexOf("game.js"), "физика загружается до модели");
   assert.ok(html.indexOf("game-render.js") < html.indexOf("game.js"), "сначала подключается отрисовка");
   assert.match(html, /href="style\.css\?v=gameplay-100rc-20261101"/);
   assert.doesNotMatch(html, /<script[^>]*src="https?:\/\//i);
@@ -402,3 +404,22 @@ test('perf: FPS-профайлер по умолчанию неактивен и
   assert.equal(diagnostic.game.time,lastTime);
 });
 
+
+test('физический модуль сохраняет геометрию и использует один источник состояния', () => {
+  const {game} = createEnvironment();
+  const module = readFileSync(path.join(root, 'game-physics.js'), 'utf8');
+  const model = readFileSync(path.join(root, 'game.js'), 'utf8');
+  // Физика должна существовать только в одном файле, а не дублироваться в Game.
+  assert.match(module, /const IMPULSE_PHYSICS_METHODS =/);
+  assert.match(model, /Object\.assign\(Game\.prototype,IMPULSE_PHYSICS_METHODS\)/);
+  assert.doesNotMatch(model, /^  moveBall\(/m);
+  assert.doesNotMatch(model, /^  reflectBallFromRect\(/m);
+  assert.equal(typeof game.moveBall, 'function');
+  assert.equal(typeof game.advancePhysics, 'function');
+
+  const block = {x:100,y:100,w:50,h:20};
+  const ball = {x:125,y:130,r:8};
+  assert.equal(game.collisionSide(block,125,132,ball), 'D');
+  assert.equal(game.collisionSide(block,92,110,{x:106,y:110,r:8}), 'L');
+  assert.equal(game.collisionSide(block,158,110,{x:145,y:110,r:8}), 'R');
+});
