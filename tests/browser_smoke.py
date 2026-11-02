@@ -384,6 +384,33 @@ with sync_playwright() as pw:
         assert sprite_stats['ball'] and sprite_stats['paddle'], sprite_stats
         assert isinstance(sprite_stats['visibleStats'], (int, float)), sprite_stats
         print(f"{label}: sector3 90 paints in {paint_stats['ms']:.1f}ms (desktop/mobile emulation)")
+        # Блоки статистики должны помещаться в игровое поле на всех экранах.
+        results = page.evaluate("""() => {
+            game.startNewGame();
+            game.launch();
+            game.runStats.seconds=65.4;
+            game.runStats.hits=5;
+            game.runStats.broken=4;
+            game.runStats.maxCombo=3;
+            const sector=document.querySelector('#stageLabel').textContent;
+            game.end('lost');
+            const bounds=selector=>document.querySelector(selector).getBoundingClientRect();
+            return {
+                sector,
+                cards:document.querySelectorAll('.run-stats > div').length,
+                label:document.querySelector('.run-stats').textContent,
+                panel:bounds('.run-stats').toJSON(),
+                stage:bounds('.game-stage').toJSON(),
+                action:bounds('#overlayAction').toJSON(),
+                extra:bounds('.run-stats-more').toJSON()
+            };
+        }""")
+        assert 'БЛОКОВ' in results['sector'], results
+        assert results['cards'] == 3, results
+        assert '1:05' in results['label'], results
+        assert results['panel']['top'] >= results['stage']['top'] - 1, results
+        assert results['extra']['bottom'] <= results['stage']['bottom'] + 1, results
+        assert results['action']['bottom'] <= results['stage']['bottom'] + 1, results
         assert not errors, errors
         print(f'{label}: responsive, controls, pause, blur OK; JS errors: 0')
         context.close()

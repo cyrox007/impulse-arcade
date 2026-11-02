@@ -855,3 +855,78 @@ canvas {
     padding:6px 10px
   }
 }
+
+/* Итоги забега: три главных числа остаются читаемыми на узком экране. */
+.run-stats {
+  width: 100%;
+  max-width: 300px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: -5px 0 10px;
+}
+.run-stats > div {
+  min-width: 0;
+  padding: 7px 3px;
+  border: 1px solid #334864;
+  border-radius: 7px;
+  background: #0b1835b5;
+}
+.run-stats span {
+  display: block;
+  color: #a5c2e1;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .2px;
+}
+.run-stats strong {
+  display: block;
+  margin-top: 3px;
+  color: #f2faff;
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+.run-stats-more {
+  max-width: 305px;
+  margin: -3px 0 12px;
+  color: #a3c8df;
+  font-size: 10px;
+  line-height: 1.4;
+}
+@media (max-width: 540px) and (orientation: portrait) {
+  .run-stats {
+    gap: 4px;
+    margin: -2px 0 7px;
+  }
+  .run-stats > div {
+    padding: 4px 2px;
+  }
+  .run-stats span {
+    font-size: 8px;
+    letter-spacing: 0;
+  }
+  .run-stats strong {
+    font-size: 14px;
+    margin-top: 1px;
+  }
+  .run-stats-more {
+    font-size: 9px;
+    margin: -2px 0 8px;
+  }
+}
+@media (max-height: 500px) {
+  .run-stats {
+    margin: 0 0 5px;
+    gap: 3px;
+  }
+  .run-stats > div {
+    padding: 3px 2px;
+  }
+  .run-stats strong {
+    font-size: 13px;
+  }
+  .run-stats-more {
+    font-size: 9px;
+    margin-bottom: 6px;
+  }
+}
