@@ -39,7 +39,7 @@ const IMPULSE_RENDER_METHODS = {
       ctx.fillText(`FPS: ${m.fps}  max: ${m.maxFrameMs}ms`,CFG.left+13,CFG.height-94);
       ctx.fillText(`Логика: ${m.avgUpdateMs}мс  Графика: ${m.avgDrawMs}мс`,CFG.left+13,CFG.height-76);
     }
-  }
+  },
   drawGameplayStatus(){
     if(!['playing','ready','paused'].includes(this.state))return;
     ctx.textAlign='left';ctx.font='bold 12px system-ui';
@@ -60,7 +60,7 @@ const IMPULSE_RENDER_METHODS = {
       ctx.fillText(effects.slice(0,3).join(' · '),CFG.left+4,94);
       if(effects.length>3)ctx.fillText(effects.slice(3).join(' · '),CFG.left+4,106);
     }
-  }
+  },
   drawBackdrop(target){
     const w=CFG.width,h=CFG.height;
     const bg=target.createLinearGradient(0,0,0,h);
@@ -75,7 +75,7 @@ const IMPULSE_RENDER_METHODS = {
     target.strokeStyle='#5ca4d73a';target.beginPath();
     target.moveTo(CFG.left,CFG.top);target.lineTo(CFG.left,CFG.bottom);
     target.moveTo(CFG.right,CFG.top);target.lineTo(CFG.right,CFG.bottom);target.stroke();
-  }
+  },
   drawBricks(target=ctx){
     this.brickPaintCount++;for(const brick of this.bricks){
     if(brick.type==='moving')continue;
@@ -111,7 +111,7 @@ const IMPULSE_RENDER_METHODS = {
     if(brick.type==='armor'){target.fillStyle='#19213c98';target.font='bold 14px system-ui';target.textAlign='center';target.fillText(brick.hp===2?'◆':'◇',brick.x+brick.w/2,brick.y+18)}
     if(brick.type==='blast'){target.fillStyle='#fff6dd';target.font='bold 17px system-ui';target.textAlign='center';target.fillText('✶',brick.x+brick.w/2,brick.y+18)}
     if(brick.type==='core'){target.fillStyle='#fff2ff';target.beginPath();target.moveTo(brick.x+brick.w/2,brick.y+5);target.lineTo(brick.x+brick.w/2+8,brick.y+brick.h/2);target.lineTo(brick.x+brick.w/2,brick.y+brick.h-5);target.lineTo(brick.x+brick.w/2-8,brick.y+brick.h/2);target.fill()}
-  }}
+  }},
   drawMovingBricks(){
     // Силуэт как у обычного кирпича; не добавляем визуальных направляющих движения.
     for(const brick of this.bricks){
@@ -121,7 +121,7 @@ const IMPULSE_RENDER_METHODS = {
       ctx.fillStyle='#e7fbff';ctx.font='bold 13px system-ui';ctx.textAlign='center';
       ctx.fillText('◇',brick.x+brick.w/2,brick.y+18);
     }
-  }
+  },
   drawEnemyShots(){
     for(const shot of this.enemyShots){
       ctx.strokeStyle='#ffb17c';ctx.lineWidth=2;
@@ -137,7 +137,7 @@ const IMPULSE_RENDER_METHODS = {
         this.boss.y+this.boss.h+7,11,0,Math.PI*2);ctx.stroke();
       ctx.globalAlpha=1;ctx.lineWidth=1;
     }
-  }
+  },
   paintGuardianSprite(target,shielded){
     const cx=112,cy=67;
     const poly=(points,fill,stroke)=>{
@@ -179,14 +179,14 @@ const IMPULSE_RENDER_METHODS = {
       target.fillStyle=shielded?'#95ecff':'#fa9bdf';
       target.beginPath();target.arc(x,68,5,0,Math.PI*2);target.fill();
     }
-  }
+  },
   makeGuardianSprite(shielded){
     const layer=createLayer(224,136);
     if(!layer)return null;
     this.paintGuardianSprite(layer.ctx,shielded);
     this.spritePaintCount++;
     return layer.canvas;
-  }
+  },
   paintReactorSprite(target){
     const poly=(points,fill,stroke)=>{
       target.beginPath();target.moveTo(points[0][0],points[0][1]);
@@ -210,12 +210,12 @@ const IMPULSE_RENDER_METHODS = {
       target.fillStyle='#182b42';target.beginPath();target.arc(x,90,24,0,Math.PI*2);target.fill();
       target.strokeStyle='#ffd0a0';target.lineWidth=3;target.beginPath();target.arc(x,90,24,0,Math.PI*2);target.stroke();
     }
-  }
+  },
   makeReactorSprite(){
     const layer=createLayer(236,124);if(!layer)return null;
     this.paintReactorSprite(layer.ctx);this.spritePaintCount++;
     return layer.canvas;
-  }
+  },
   drawReactor(){
     const boss=this.boss;if(!boss||boss.kind!=='reactor')return;
     const sprite=this.sprites.reactor;
@@ -247,7 +247,7 @@ const IMPULSE_RENDER_METHODS = {
       ctx.fillStyle='#fff6d6';ctx.fillRect(boss.x+16,boss.y+7,boss.w-32,6);ctx.globalAlpha=1;
     }
     ctx.lineWidth=1;ctx.globalAlpha=1;
-  }
+  },
   drawGuardian(){
     const boss=this.boss;if(!boss)return;
     if(boss.kind==='reactor'){this.drawReactor();return}
@@ -274,20 +274,20 @@ const IMPULSE_RENDER_METHODS = {
       roundRect(x,boss.y-36,cell,6,2,i<boss.hp?(shielded?'#76cbed':'#f49ed8'):'#32415c',null);
     }
     ctx.globalAlpha=1;ctx.lineWidth=1;
-  }
+  },
   drawDrops(){for(const d of this.drops){
     const color=d.type==='wide'?'#6bf9bc':d.type==='slow'?'#81c6ff':d.type==='shield'?'#88ffd6':d.type==='multi'?'#c0a2ff':d.type==='magnet'?'#ffc881':'#ff83a9';
     ctx.shadowColor=color;ctx.shadowBlur=14;roundRect(d.x-13,d.y-13,26,26,8,'#192643',color);ctx.shadowBlur=0;
     ctx.fillStyle=color;ctx.font='bold 17px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';
     ctx.fillText(d.type==='wide'?'↔':d.type==='slow'?'◷':d.type==='shield'?'⬡':d.type==='multi'?'✳':d.type==='magnet'?'∩':'♥',d.x,d.y+1);
     ctx.textBaseline='alphabetic';
-  }}
+  }},
   drawShield(){
     if(this.shieldCharges<=0)return;
     ctx.strokeStyle='#88ffd6';ctx.globalAlpha=.8;ctx.lineWidth=3;
     ctx.beginPath();ctx.moveTo(CFG.left+14,CFG.bottom-14);ctx.lineTo(CFG.right-14,CFG.bottom-14);ctx.stroke();
     ctx.globalAlpha=1;ctx.lineWidth=1;
-  }
+  },
   drawParticles(){
     for(const p of this.particles){
       ctx.globalAlpha=clamp(p.life/p.maxLife,0,1);ctx.fillStyle=p.color;
@@ -298,7 +298,7 @@ const IMPULSE_RENDER_METHODS = {
       }else ctx.fillRect(p.x,p.y,p.r,p.r);
     }
     ctx.globalAlpha=1;
-  }
+  },
 
   paintPaddle(target,w,wide,left,y){
     target.shadowColor=wide?'#5cf9bf':'#4adff5';target.shadowBlur=19;
@@ -309,14 +309,14 @@ const IMPULSE_RENDER_METHODS = {
     roundRect(left,y,w,CFG.paddleH,7,gradient,'#a2f2ff',target);target.shadowBlur=0;
     roundRect(left+w/2-19,y+2,38,3,2,'#ecfaff',null,target);
     target.fillStyle='#64dafa8a';target.fillRect(left+4,y+CFG.paddleH-1,w-18,3);
-  }
+  },
   makePaddleSprite(width,wide){
     const pad=26,layer=createLayer(width+pad*2,CFG.paddleH+pad*2);
     if(!layer)return null;
     this.paintPaddle(layer.ctx,width,wide,pad,pad);
     this.spritePaintCount++;
     return layer.canvas;
-  }
+  },
   drawPaddle(){
     const p=this.paddle,wide=this.timers.wide>0;
     const sprite=wide?this.sprites.paddleWide:this.sprites.paddleNormal;
@@ -334,7 +334,7 @@ const IMPULSE_RENDER_METHODS = {
       ctx.lineTo(p.x+p.w/2-9,p.y-6);ctx.stroke();
       ctx.globalAlpha=1;ctx.lineWidth=1;
     }
-  }
+  },
   paintBall(target,pulse,x,y,r){
     target.shadowColor=pulse?'#ff65d4':'#b6faff';target.shadowBlur=pulse?28:18;
     const gradient=target.createRadialGradient(x-3,y-3,2,x,y,r+2);
@@ -343,14 +343,14 @@ const IMPULSE_RENDER_METHODS = {
     gradient.addColorStop(1,pulse?'#ad4ec6':'#248ca9');
     target.fillStyle=gradient;target.beginPath();target.arc(x,y,r,0,Math.PI*2);target.fill();
     target.shadowBlur=0;
-  }
+  },
   makeBallSprite(pulse){
     const pad=36,size=CFG.ballRadius*2+pad*2,layer=createLayer(size,size);
     if(!layer)return null;
     this.paintBall(layer.ctx,pulse,pad+CFG.ballRadius,pad+CFG.ballRadius,CFG.ballRadius);
     this.spritePaintCount++;
     return layer.canvas;
-  }
+  },
   drawBall(){
     const pulse=this.timers.pulse>0;
     for(const b of this.activeBalls()){
