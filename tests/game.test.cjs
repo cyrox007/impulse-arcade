@@ -1863,3 +1863,58 @@ test('1.0 RC: мультишар переживает многократные �
     assert.ok(game.activeBalls().length<=3);
   }
 });
+
+
+test('ползунки настроек сохраняют клавиатурное управление стрелками', () => {
+  const {game,handlers} = createEnvironment();
+  const keydown = handlers.get('window:keydown');
+  let cancelled = 0;
+  const event = code => ({
+    code,
+    repeat: false,
+    preventDefault() {cancelled++;}
+  });
+
+  game.toggleSettings(true);
+  keydown(event('ArrowRight'));
+  keydown(event('Space'));
+  assert.equal(cancelled, 0, 'стрелки и пробел нужны элементам настроек');
+  assert.equal(game.keys.ArrowRight, undefined);
+  assert.equal(game.state, 'menu');
+
+  keydown(event('Escape'));
+  assert.equal(game.settingsOpen, false);
+  assert.equal(cancelled, 1, 'Escape закрывает настройки');
+
+  keydown(event('ArrowRight'));
+  assert.equal(cancelled, 2, 'во время управления игрой стрелка перехватывается');
+  assert.equal(game.keys.ArrowRight, true);
+});
+
+test('рефакторинг игрового цикла сохраняет остановку босса на паузе', () => {
+  const {game} = createEnvironment();
+  game.launch();
+  game.launch();
+  game.beginGuardian();
+  assert.ok(game.boss);
+
+  const before = [game.boss.x, game.boss.y, game.boss.phaseTime];
+  game.togglePause();
+  game.update(0.03);
+  assert.deepEqual([game.boss.x, game.boss.y, game.boss.phaseTime], before);
+
+  game.launch();
+  game.update(0.03);
+  assert.ok(game.boss.phaseTime > before[2]);
+});
+
+test('таймер расширения платформы восстанавливает исходный размер', () => {
+  const {game,CFG} = createEnvironment();
+  game.launch();
+  game.launch();
+  game.applyDrop('wide');
+  assert.ok(game.paddle.w > CFG.paddleW);
+  game.updateEffectTimers(CFG.wideDuration);
+  assert.equal(game.paddle.w, CFG.paddleW);
+  assert.equal(game.timers.wide, 0);
+});
