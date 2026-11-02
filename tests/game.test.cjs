@@ -8,6 +8,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const rendererSource = readFileSync(path.join(root, 'game-render.js'), 'utf8');
 const source = readFileSync(path.join(root, 'game.js'), 'utf8');
+const inputSource = readFileSync(path.join(root, 'game-input.js'), 'utf8');
 
 function createEnvironment({fpsDebug=false,reducedMotion=false,sharedStorage=null,storageBlocked=false}={}) {
   const handlers = new Map();
@@ -62,6 +63,7 @@ function createEnvironment({fpsDebug=false,reducedMotion=false,sharedStorage=nul
   vm.createContext(sandbox);
   vm.runInContext(rendererSource, sandbox, {filename:'game-render.js'});
   vm.runInContext(source, sandbox, {filename:'game.js'});
+  vm.runInContext(inputSource, sandbox, {filename:'game-input.js'});
   return { ...vm.runInContext('({game,CFG,LEVELS})', sandbox),
     handlers, elements:records, storage, gradientCalls,
     tick(now){if(!animationFrame)throw Error('RAF was not scheduled');animationFrame(now);}
@@ -206,6 +208,8 @@ test('статический сайт не зависит от внешних JS
   assert.match(html, /name="description"/);
   assert.match(html, /src="game-render\.js\?v=gameplay-100rc-20261101"/);
   assert.match(html, /src="game\.js\?v=gameplay-100rc-20261101"/);
+  assert.match(html, /src="game-input\.js\?v=gameplay-100rc-20261101"/);
+  assert.ok(html.indexOf("game.js") < html.indexOf("game-input.js"), "управление загружается после модели");
   assert.ok(html.indexOf("game-render.js") < html.indexOf("game.js"), "сначала подключается отрисовка");
   assert.match(html, /href="style\.css\?v=gameplay-100rc-20261101"/);
   assert.doesNotMatch(html, /<script[^>]*src="https?:\/\//i);
