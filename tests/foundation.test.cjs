@@ -112,6 +112,7 @@ test('статический сайт не зависит от внешних JS
   assert.match(html, /src="game-input\.js\?v=gameplay-100rc-20261101"/);
   assert.ok(html.indexOf("game.js") < html.indexOf("game-input.js"), "управление загружается после модели");
   assert.ok(html.indexOf("game-physics.js") < html.indexOf("game.js"), "физика загружается до модели");
+  assert.ok(html.indexOf("game-bricks.js") < html.indexOf("game.js"), "кирпичи загружаются до модели");
   assert.ok(html.indexOf("game-bosses.js") < html.indexOf("game.js"), "боссы подключены до модели");
   assert.ok(html.indexOf("game-storage.js") < html.indexOf("game.js"), "хранилище должно быть готово до конструктора");
   assert.ok(html.indexOf("game-ui.js") < html.indexOf("game.js"), "интерфейс готов до появления Game");
