@@ -539,8 +539,8 @@ test('разделённые подсистемы боссов и бонусов
   assert.doesNotMatch(model,/^  updateBoss\(/m);
   assert.doesNotMatch(model,/^  updateEffectTimers\(/m);
   assert.doesNotMatch(model,/^  beginReactor\(/m);
-  assert.match(model,/Object\.assign\(Game\.prototype,IMPULSE_BOSS_METHODS\)/);
-  assert.match(model,/Object\.assign\(Game\.prototype,IMPULSE_EFFECT_METHODS\)/);
+  assert.match(model,/Object\.assign\(\s*Game\.prototype,\s*IMPULSE_BOSS_METHODS\)/);
+  assert.match(model,/Object\.assign\(\s*Game\.prototype,\s*IMPULSE_EFFECT_METHODS\)/);
 
   game.launch();
   game.launch();
