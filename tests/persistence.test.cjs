@@ -430,8 +430,8 @@ test('сохранения и интерфейс вынесены без дуб�
   assert.match(interfaceCode, /const IMPULSE_UI_METHODS =/);
   assert.doesNotMatch(model, /^  continueGame\(/m);
   assert.doesNotMatch(model, /^  updateUI\(/m);
-  assert.match(model, /Object\.assign\(Game\.prototype,IMPULSE_PERSISTENCE_METHODS\)/);
-  assert.match(model, /Object\.assign\(Game\.prototype,IMPULSE_UI_METHODS\)/);
+  assert.match(model, /Object\.assign\(\s*Game\.prototype,\s*IMPULSE_PERSISTENCE_METHODS\)/);
+  assert.match(model, /Object\.assign\(\s*Game\.prototype,\s*IMPULSE_UI_METHODS\)/);
 
   // Данные остаются прежней версии: прогресс, рекорд и настройки не теряются.
   game.launch();
