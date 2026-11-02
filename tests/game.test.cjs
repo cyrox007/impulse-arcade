@@ -1895,6 +1895,7 @@ test('рефакторинг игрового цикла сохраняет ос
   const {game} = createEnvironment();
   game.launch();
   game.launch();
+  game.level = 2;
   game.beginGuardian();
   assert.ok(game.boss);
 
