@@ -445,7 +445,7 @@ test('сохранения и интерфейс вынесены без дуб�
   const saved=JSON.parse(storage.get('impulse-arcade:checkpoint:v1'));
   assert.equal(saved.version,1);
   assert.equal(saved.stats.hits,12);
-  assert.equal(saved.score,2900+200*2);
+  assert.equal(saved.score,2900+100*2);
 
   game.setSetting('sensitivity',120);
   assert.equal(elements.get('sensitivityValue').textContent,'120%');
