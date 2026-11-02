@@ -75,56 +75,6 @@ function createLayer(width=CFG.width,height=CFG.height){
   const target=layer.getContext('2d');
   return target?{canvas:layer,ctx:target}:null;
 }
-function safeLoadBest(){try{return Math.max(0,Number(localStorage.getItem(CFG.storageKey))||0)}catch(_){return 0}}
-function safeSaveBest(value){try{localStorage.setItem(CFG.storageKey,String(value))}catch(_){/* Локальное хранилище может быть запрещено браузером */}}
-const SETTINGS_DEFAULTS=Object.freeze({sound:false,volume:60,effects:'auto',sensitivity:100});
-function safeLoadSettings(){
-  try{
-    const raw=localStorage.getItem(CFG.settingsKey);
-    if(!raw||raw.length>1024)return {...SETTINGS_DEFAULTS};
-    const x=JSON.parse(raw);
-    if(!x||x.version!==1||typeof x.sound!=='boolean'||
-       !Number.isInteger(x.volume)||x.volume<0||x.volume>100||
-       !['auto','full','reduced'].includes(x.effects)||
-       !Number.isInteger(x.sensitivity)||x.sensitivity<70||x.sensitivity>130)
-      return {...SETTINGS_DEFAULTS};
-    return {sound:x.sound,volume:x.volume,effects:x.effects,sensitivity:x.sensitivity};
-  }catch(_){return {...SETTINGS_DEFAULTS}}
-}
-function safeSaveSettings(value){
-  try{localStorage.setItem(CFG.settingsKey,JSON.stringify({version:1,...value}));return true}
-  catch(_){return false}
-}
-// Контрольные точки создаются только после завершения сектора.
-// Не сохраняем подвижные объекты, незавершённые бои с боссами и частично разрушенные блоки.
-const CHECKPOINT_VERSION=1;
-const STAT_KEYS=['seconds','hits','broken','pulses','maxCombo','barriers','splits'];
-function safeLoadCheckpoint(){
-  try{
-    const raw=localStorage.getItem(CFG.checkpointKey);
-    if(!raw||raw.length>4096)return null;
-    const value=JSON.parse(raw);
-    if(!value||value.version!==CHECKPOINT_VERSION||
-       !Number.isInteger(value.sector)||value.sector<1||value.sector>=LEVELS.length||
-       !Number.isSafeInteger(value.score)||value.score<0||value.score>1e9||
-       !Number.isInteger(value.lives)||value.lives<1||value.lives>5||
-       !Number.isFinite(value.energy)||value.energy<0||value.energy>100||
-       !value.stats||typeof value.stats!=='object'||Array.isArray(value.stats)||
-       !STAT_KEYS.every(k=>typeof value.stats[k]==='number'&&Number.isFinite(value.stats[k])&&
-         value.stats[k]>=0&&value.stats[k]<=1e9))return null;
-    return {version:CHECKPOINT_VERSION,sector:value.sector,score:value.score,
-      lives:value.lives,energy:value.energy,
-      stats:Object.fromEntries(STAT_KEYS.map(k=>[k,value.stats[k]]))};
-  }catch(_){return null}
-}
-function safeSaveCheckpoint(checkpoint){
-  try{localStorage.setItem(CFG.checkpointKey,JSON.stringify(checkpoint));return true}
-  catch(_){return false}
-}
-function safeClearCheckpoint(){
-  try{localStorage.removeItem(CFG.checkpointKey)}catch(_){/* Доступ к хранилищу может быть запрещён */}
-}
-
 class Game {
   constructor(){
     this.frame=0;this.state='menu';this.score=0;this.best=safeLoadBest();this.checkpoint=safeLoadCheckpoint();this.lives=3;this.level=0;
@@ -161,37 +111,6 @@ class Game {
     this.draw();this.showOverlay('intro');this.updateUI();
   }
   setState(state){this.state=state;this.updateUI()}
-  syncSettingsUI(){
-    ui.volume.value=String(this.settings.volume);ui.volumeText.textContent=this.settings.volume+'%';
-    ui.effects.value=this.settings.effects;
-    ui.sensitivity.value=String(this.settings.sensitivity);
-    ui.sensitivityText.textContent=this.settings.sensitivity+'%';
-    ui.sound.querySelector('.sound-state').textContent=this.settings.sound?'ВКЛ':'ВЫКЛ';
-    ui.sound.setAttribute('aria-label',this.settings.sound?'Выключить звук':'Включить звук');
-  }
-  setSetting(key,value){
-    if(key==='volume'||key==='sensitivity')value=Number(value);
-    const next={...this.settings,[key]:value};
-    if(typeof next.sound!=='boolean'||!Number.isInteger(next.volume)||
-       next.volume<0||next.volume>100||!['auto','full','reduced'].includes(next.effects)||
-       !Number.isInteger(next.sensitivity)||next.sensitivity<70||next.sensitivity>130)return false;
-    this.settings=next;soundEnabled=next.sound;masterVolume=next.volume/100;
-    this.reducedMotion=next.effects==='reduced'||
-      (next.effects==='auto'&&Boolean(window.matchMedia&&
-        window.matchMedia('(prefers-reduced-motion: reduce)').matches));
-    if(this.reducedMotion){this.waves=[];if(this.particles.length>60)this.particles.splice(0,this.particles.length-60)}
-    safeSaveSettings(next);this.syncSettingsUI();return true;
-  }
-  toggleSettings(force){
-    const open=force===undefined?!this.settingsOpen:Boolean(force);
-    if(open===this.settingsOpen)return;
-    this.settingsOpen=open;
-    if(open&&this.state==='playing')this.togglePause();
-    ui.settingsPanel.hidden=!open;
-    ui.settingsButton.setAttribute('aria-expanded',String(open));
-    if(open)ui.settingsClose.focus();
-    else ui.settingsButton.focus();
-  }
   resetCombo(){this.comboHits=0;this.comboUntil=0}
   comboMultiplier(){return Math.min(4,1+Math.floor(Math.max(0,this.comboHits-1)/3))}
   registerHit(){
@@ -228,39 +147,6 @@ class Game {
     // если единственная уязвимая сторона обращена к стене.
     for(const brick of this.bricks)this.ensureDirectionalClearance(brick);
     this.boss=null;this.enemyShots=[];this.sectorPhase='bricks';this.bricksDirty=true;
-  }
-  saveCheckpoint(){
-    if(this.state!=='between'||this.level>=LEVELS.length-1)return false;
-    const checkpoint={version:CHECKPOINT_VERSION,sector:this.level+1,
-      score:this.score,lives:this.lives,energy:this.energy,
-      stats:Object.fromEntries(STAT_KEYS.map(k=>[k,this.runStats[k]]))};
-    // Хранилище может быть недоступно или заполнено: не выдаём несохранённую точку за записанную.
-    if(!safeSaveCheckpoint(checkpoint))return false;
-    this.checkpoint=checkpoint;
-    return true;
-  }
-  continueGame(){
-    if(!this.checkpoint||!['menu','lost'].includes(this.state))return false;
-    // Повторно проверяем данные контрольной точки перед применением, даже если объект изменили в памяти.
-    const saved=this.checkpoint;
-    const valid=saved.version===CHECKPOINT_VERSION&&
-      Number.isInteger(saved.sector)&&saved.sector>=1&&saved.sector<LEVELS.length&&
-      Number.isSafeInteger(saved.score)&&saved.score>=0&&saved.score<=1e9&&
-      Number.isInteger(saved.lives)&&saved.lives>=1&&saved.lives<=5&&
-      Number.isFinite(saved.energy)&&saved.energy>=0&&saved.energy<=100&&
-      saved.stats&&STAT_KEYS.every(k=>Number.isFinite(saved.stats[k])&&saved.stats[k]>=0&&saved.stats[k]<=1e9);
-    if(!valid){this.checkpoint=null;safeClearCheckpoint();return false}
-    this.level=saved.sector;this.score=saved.score;this.lives=saved.lives;
-    this.energy=saved.energy;
-    this.runStats=Object.fromEntries(STAT_KEYS.map(k=>[k,saved.stats[k]]));
-    this.time=0;this.resetCombo();this.bestComboInSector=0;
-    this.lastSectorBestCombo=0;this.lastSectorBonus=0;
-    this.shieldCharges=0;
-    this.paddle.x=CFG.width/2;this.targetX=this.paddle.x;
-    this.keys={};this.activePointerId=null;
-    this.timers={pulse:0,wide:0,slow:0,magnet:0};
-    this.drops=[];this.particles=[];this.waves=[];this.enemyShots=[];
-    this.startLevel();return true;
   }
   startNewGame(){
     // Новая игра удаляет предыдущую контрольную точку, в том числе после поражения.
@@ -455,64 +341,8 @@ class Game {
     this.paddle.x+=(this.targetX-this.paddle.x)*Math.min(1,dt*23);
   }
 
-  /**
-   * Формируем наглядный итог забега из уже существующих счётчиков.
-   * Статистика обновляется игровой моделью, поэтому отдельное состояние
-   * результатов не создаётся и не расходится с сохранённой контрольной точкой.
-   */
-  runStatsMarkup(){
-    const totalSeconds=Math.floor(Math.max(0,this.runStats.seconds));
-    const elapsed=`${Math.floor(totalSeconds/60)}:${String(totalSeconds%60).padStart(2,'0')}`;
-    const stats=this.runStats;
-    return `<div class="run-stats" role="group" aria-label="Статистика забега">
-      <div><span>ВРЕМЯ</span><strong>${elapsed}</strong></div>
-      <div><span>БЛОКОВ</span><strong>${stats.broken}</strong></div>
-      <div><span>ЛУЧШАЯ СЕРИЯ</span><strong>${stats.maxCombo}</strong></div>
-    </div>
-    <div class="run-stats-more">ПОПАДАНИЯ: ${stats.hits} · ИМПУЛЬСЫ: ${stats.pulses} · СПАСЕНИЯ: ${stats.barriers} · РАЗДЕЛЕНИЯ: ${stats.splits}</div>`;
-  }
-  overlayContent(kind){
-    const checkpoint=this.checkpoint&&['intro','lost'].includes(kind)?this.checkpoint:null;
-    const resumeLabel=checkpoint?'ПРОДОЛЖИТЬ · СЕКТОР '+String(checkpoint.sector+1).padStart(2,'0'):null;
-    const common={
-      intro:{icon:'✦',kicker:'НОВАЯ АРКАДА',title:'ИМПУЛЬС',text:'Пять секторов, мультишар и новые испытания. В третьем секторе Страж ядра, в пятом — Реактор.',action:resumeLabel||'НАЧАТЬ ИГРУ',small:checkpoint?'Сохранено на этом устройстве в начале сектора '+(checkpoint.sector+1)+'.':'На телефоне двигай платформу пальцем по полю. На ПК — мышь или стрелки.'},
-      pause:{icon:'Ⅱ',kicker:'ИГРА ПРИОСТАНОВЛЕНА',title:'ПАУЗА',text:'Шар ждёт твоего возвращения.',action:'ПРОДОЛЖИТЬ',small:'Клавиша P — пауза / продолжить.'},
-      between:{icon:'✧',kicker:'СЕКТОР ОЧИЩЕН',title:'ОТЛИЧНАЯ РАБОТА',text:`Следующий сектор: ${LEVELS[this.level+1]?.name ?? 'ФИНАЛ'}. Бонус за жизни: +${this.lastSectorBonus}. Лучшая серия: ${this.lastSectorBestCombo}. Жизни и счёт сохраняются.`,action:'СЛЕДУЮЩИЙ СЕКТОР',small:'Впереди более прочные блоки.'},
-      won:{icon:'★',kicker:'МИССИЯ ВЫПОЛНЕНА',title:'ПЯТЬ СЕКТОРОВ И ДВА БОССА ПРОЙДЕНЫ',text:`Финальный счёт: ${this.score.toLocaleString('ru-RU')}. Бонус финального сектора: +${this.lastSectorBonus}. Твой рекорд: ${this.best.toLocaleString('ru-RU')}.`,action:'СЫГРАТЬ СНОВА',small:'Рекорд сохранён на этом устройстве.'},
-      lost:{icon:'✕',kicker:'ПОПЫТКА ЗАВЕРШЕНА',title:'ИГРА ОКОНЧЕНА',text:`Ты набрал ${this.score.toLocaleString('ru-RU')} очков. Попробуй ещё раз!`,action:resumeLabel||'НОВАЯ ПОПЫТКА',small:checkpoint?'Сохранена контрольная точка перед сектором '+(checkpoint.sector+1)+'.':'Результат можно улучшить новой попыткой.'}
-    }[kind];
-    const results=(kind==='won'||kind==='lost')?this.runStatsMarkup():'';
-    return `<div class="overlay-icon" aria-hidden="true">${common.icon}</div><div class="overlay-kicker">${common.kicker}</div><h2>${common.title}</h2><p>${common.text}</p>${results}<button type="button" class="overlay-action" id="overlayAction">${common.action}</button>${checkpoint?'<button type="button" class="overlay-action overlay-new-game" id="newGameAction">НОВАЯ ИГРА</button>':''}<div class="overlay-small">${common.small}</div>`;
-  }
-  showOverlay(kind){
-    ui.overlay.innerHTML=this.overlayContent(kind);ui.overlay.hidden=false;
-    ui.overlay.querySelector('#overlayAction').addEventListener('click',()=>this.launch(),{once:true});
-    if(this.checkpoint&&['intro','lost'].includes(kind))
-      ui.overlay.querySelector('#newGameAction').addEventListener('click',()=>this.startNewGame(),{once:true});
-  }
-  hideOverlay(){ui.overlay.hidden=true;ui.overlay.innerHTML=''}
-  updateUI(){
-    ui.score.textContent=String(this.score).padStart(6,'0');ui.best.textContent=String(this.best).padStart(6,'0');
-    ui.lives.textContent='♥ '.repeat(Math.max(0,this.lives)).trim()||'—';
-    // Счётчик относится только к фазе кирпичей: во время боя с боссом
-    // число 0 не должно создавать впечатление завершённого сектора.
-    const remaining=this.sectorPhase==='bricks'&&this.bricks.length?
-      ` · ${this.bricks.length} БЛОКОВ`:'';
-    ui.stage.textContent=`СЕКТОР ${String(this.level+1).padStart(2,'0')} / ${String(LEVELS.length).padStart(2,'0')}${remaining}`;
-    ui.compactSector.textContent=`${String(this.level+1).padStart(2,'0')}/${String(LEVELS.length).padStart(2,'0')}`;
-    ui.charge.style.width=`${this.energy}%`;ui.chargeText.textContent=`${Math.floor(this.energy)}%`;
-    ui.chargeBar.setAttribute('aria-valuenow',String(Math.floor(this.energy)));
-    ui.pulse.disabled=this.state!=='playing'||this.energy<100||this.timers.pulse>0;
-    ui.pulseLabel.textContent=this.timers.pulse>0?'ПРОБИТИЕ!':this.energy>=100?'ИМПУЛЬС ГОТОВ':`ИМПУЛЬС ${Math.floor(this.energy)}%`;
-    const labels={menu:'СТАРТ',ready:'ЗАПУСК ШАРА',playing:'ШАР В ИГРЕ',paused:'ПРОДОЛЖИТЬ',between:'СЛЕД. СЕКТОР',won:'СНОВА',lost:'ПОВТОРИТЬ'};
-    ui.launchLabel.textContent=this.state==='playing'&&this.activeBalls().some(b=>b.held)?'ОТПУСТИТЬ ШАР':labels[this.state];ui.launch.disabled=this.state==='playing'&&!this.activeBalls().some(b=>b.held);
-    ui.pause.disabled=!['ready','playing','paused'].includes(this.state);
-    ui.pause.textContent=this.state==='paused'?'▶':'Ⅱ';
-    ui.hint.textContent=this.activeBalls().some(b=>b.held)?'Мяч пойман магнитом: коснись поля или нажми «Отпустить шар».':this.timers.pulse>0?'Пробивной импульс активен: шары проходят сквозь блоки.':this.energy>=100?'Заряд готов! Нажми «ИМПУЛЬС» или F.':this.state==='ready'?'Нажми «Запуск шара» или коснись игрового поля.':'Разбивай блоки, чтобы зарядить пробивной импульс.';
-  }
 
-  // Визуальные методы подключаются к прототипу после объявления Game.
-  // Это позволяет сохранить `this` и публичный интерфейс для тестов.
+  // Подсистемы подключаются до создания Game, сохраняя общий объект состояния.
 
 }
 
@@ -535,5 +365,15 @@ if(typeof IMPULSE_EFFECT_METHODS==='undefined'){
   throw new Error('Не загружен модуль эффектов game-effects.js');
 }
 Object.assign(Game.prototype,IMPULSE_EFFECT_METHODS);
+
+if(typeof IMPULSE_PERSISTENCE_METHODS==='undefined'){
+  throw new Error('Не загружен модуль хранения game-storage.js');
+}
+Object.assign(Game.prototype,IMPULSE_PERSISTENCE_METHODS);
+
+if(typeof IMPULSE_UI_METHODS==='undefined'){
+  throw new Error('Не загружен модуль интерфейса game-ui.js');
+}
+Object.assign(Game.prototype,IMPULSE_UI_METHODS);
 
 const game=new Game();
