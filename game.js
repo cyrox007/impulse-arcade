@@ -63,6 +63,13 @@ function beep(frequency, duration=.06, volume=.035, type='sine') {
 
 function random(min,max){return min+Math.random()*(max-min)}
 function clamp(n,lo,hi){return Math.min(hi,Math.max(lo,n))}
+/**
+ * Основной владелец состояния игры и её жизненного цикла.
+ * Правила кирпичей, физика, боссы, усиления, интерфейс и сохранения
+ * подключаются к прототипу после объявления класса, но до первого new Game.
+ * Это сохраняет один источник состояния и делает повторное создание
+ * экземпляра безопасным для тестового стенда.
+ */
 class Game {
   constructor(){
     this.frame=0;this.state='menu';this.score=0;this.best=safeLoadBest();this.checkpoint=safeLoadCheckpoint();this.lives=3;this.level=0;
