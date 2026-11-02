@@ -230,9 +230,9 @@ class Game {
         vy:code==='M'?(c%2?-60:-65):0,
         directionClock:code==='M'?1.2+.17*c:0});
     }
-    // A weak face must have room for the entire ball to approach from outside.
-    // Unlike other bricks, a directional brick can become unbeatable forever
-    // if its active side points directly at a wall.
+    // Слабая грань должна быть доступна мячу со стороны игрового поля.
+    // Направленные блоки, в отличие от обычных, могут стать непроходимыми,
+    // если единственная уязвимая сторона обращена к стене.
     for(const brick of this.bricks)this.ensureDirectionalClearance(brick);
     this.boss=null;this.enemyShots=[];this.sectorPhase='bricks';this.bricksDirty=true;
   }
@@ -245,14 +245,14 @@ class Game {
   }
   ensureDirectionalClearance(brick){
     if(brick.type!=='directional')return;
-    // A ball needs two radii between a brick face and arena boundary:
-    // one radius next to the brick and one next to the wall.
+    // Между слабой гранью блока и стеной помещаются два радиуса мяча:
+    // первый возле блока, второй возле границы арены.
     const required=2*CFG.ballRadius+2;
     if(this.directionalClearance(brick)>=required)return;
     const fallback=['D','U','L','R'].find(face=>this.directionalClearance(brick,face)>=required);
-    // Extremely constrained future layouts must fail visibly during testing,
-    // rather than silently creating an invulnerable target.
-    if(!fallback)throw new Error('No reachable face for directional brick at '+brick.row+','+brick.col);
+    // При невозможной геометрии уровня сигнализируем об ошибке сразу,
+    // вместо появления неуязвимого блока.
+    if(!fallback)throw new Error('Недоступная грань направленного блока: '+brick.row+','+brick.col);
     brick.face=fallback;
   }
   saveCheckpoint(){
@@ -689,8 +689,13 @@ class Game {
     }
     ctx.globalAlpha=1;ctx.lineWidth=1;
   }
+  /**
+   * Один шаг симуляции. Сначала обновляем эффекты и управление, затем
+   * перемещаем сущности и проверяем столкновения. Пауза не меняет игровое время.
+   * @param {number} dt Прошедшее время в секундах, ограниченное главным циклом.
+   */
   update(dt){
-    // A pause freezes both simulation and particles; only resumed play advances time.
+    // Пауза останавливает и физику, и частицы.
     if(this.state==='paused')return;
     this.time+=dt;this.frame++;
     if(this.state==='playing')this.runStats.seconds+=dt;
@@ -698,31 +703,9 @@ class Game {
     if(this.flash>0)this.flash=Math.max(0,this.flash-dt);
     for(let i=this.particles.length-1;i>=0;i--){const p=this.particles[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=125*dt;p.life-=dt;if(p.life<=0)this.particles.splice(i,1)}
     for(let i=this.waves.length-1;i>=0;i--){const wave=this.waves[i];wave.life-=dt;if(wave.life<=0)this.waves.splice(i,1)}
-    if(this.state==='playing'&&this.boss){
-      const boss=this.boss;
-      boss.phaseTime+=dt;
-      boss.lock=Math.max(0,boss.lock-dt);
-      boss.hitFlash=Math.max(0,boss.hitFlash-dt);
-      if(boss.kind==='reactor'){
-        boss.x+=boss.vx*dt;
-        if(boss.x>boss.maxX){boss.x=boss.maxX-(boss.x-boss.maxX);boss.vx=-Math.abs(boss.vx)}
-        else if(boss.x<boss.minX){boss.x=boss.minX+(boss.minX-boss.x);boss.vx=Math.abs(boss.vx)}
-        boss.y=145+(this.reducedMotion?0:18*Math.sin(boss.phaseTime*.95));
-      }else{
-        boss.x+=boss.vx*dt;
-        if(boss.x>boss.maxX){boss.x=boss.maxX-(boss.x-boss.maxX);boss.vx=-Math.abs(boss.vx)}
-        else if(boss.x<boss.minX){boss.x=boss.minX+(boss.minX-boss.x);boss.vx=Math.abs(boss.vx)}
-        boss.y=153+(this.reducedMotion?0:14*Math.sin(boss.phaseTime*1.25));
-      }
-      boss.shotClock+=dt;
-      const interval=boss.kind==='reactor'?2.9:3.5;
-      if(boss.shotClock>=interval){boss.shotClock-=interval;this.shootBoss(boss)}
-    }
+    this.updateBoss(dt);
     if(this.state!=='ready'&&this.state!=='playing')return;
-    const move=(this.keys.ArrowRight||this.keys.KeyD?1:0)-(this.keys.ArrowLeft||this.keys.KeyA?1:0);
-    if(move!==0)this.targetX+=move*CFG.paddleSpeed*dt*this.settings.sensitivity/100;
-    this.targetX=clamp(this.targetX,CFG.left+this.paddle.w/2,CFG.right-this.paddle.w/2);
-    this.paddle.x+=(this.targetX-this.paddle.x)*Math.min(1,dt*23);
+    this.updatePaddle(dt);
     if(this.state==='ready'){
       this.ball.x=this.paddle.x;this.ball.y=this.paddle.y-17;
       return;
@@ -732,39 +715,77 @@ class Game {
       ball.y=this.paddle.y-ball.r-1;
       ball.holdTime=Math.max(0,(ball.holdTime||0)-dt);
     }
-    for(const b of this.bricks)b.lock=Math.max(0,b.lock-dt);
-    for(const kind of ['pulse','wide','slow','magnet']){
-      if(this.timers[kind]<=0)continue;
-      const old=this.timers[kind];this.timers[kind]=Math.max(0,old-dt);
-      if(old>0&&this.timers[kind]===0){
-        if(kind==='wide')this.paddle.w=CFG.paddleW;
-        if(kind==='slow')for(const ball of this.activeBalls())if(this.ballSpeed(ball)>0)this.setBallSpeed(Math.min(CFG.maxSpeed,this.ballSpeed(ball)/.75),ball);
-        if(kind==='pulse')for(const ball of this.activeBalls())if(this.ballSpeed(ball)>CFG.maxSpeed*.83)this.setBallSpeed(CFG.maxSpeed*.83,ball);
-        this.updateUI();
-      }
-    }
+    this.updateEffectTimers(dt);
     this.updateDrops(dt);
     if(this.state==='playing')this.updateEnemyShots(dt);
     if(this.activeBalls().some(b=>b.held&&(b.holdTime<=0||this.timers.magnet<=0)))
       this.releaseHeldBalls();
-    const steps=Math.max(1,Math.ceil(dt/.006));
-    for(let step=0;step<steps;step++){
+    this.advancePhysics(dt);
+  }
+  /** Интегрирует физику малыми шагами, ограничивая прохождение мяча через кирпичи. */
+  advancePhysics(dt){
+  const steps=Math.max(1,Math.ceil(dt/.006));
+  for(let step=0;step<steps;step++){
+    if(this.state!=='playing')break;
+    const subdt=dt/steps;
+    this.updateMovingBricks(subdt);
+    for(const ball of this.activeBalls()){
       if(this.state!=='playing')break;
-      const subdt=dt/steps;
-      this.updateMovingBricks(subdt);
-      for(const ball of this.activeBalls()){
-        if(this.state!=='playing')break;
-        if(ball!==this.ball&&!this.extraBalls.includes(ball))continue;
-        this.moveBall(subdt,ball,false);
-      }
-    }
-    if(this.state==='playing')for(const ball of this.activeBalls()){
-      if(!ball.held)ball.trail.push({x:ball.x,y:ball.y,life:.2});
-      if(ball.trail.length>18)ball.trail.shift();
-      for(const p of ball.trail)p.life-=dt;
-      ball.trail=ball.trail.filter(p=>p.life>0);
+      if(ball!==this.ball&&!this.extraBalls.includes(ball))continue;
+      this.moveBall(subdt,ball,false);
     }
   }
+  if(this.state==='playing')for(const ball of this.activeBalls()){
+    if(!ball.held)ball.trail.push({x:ball.x,y:ball.y,life:.2});
+    if(ball.trail.length>18)ball.trail.shift();
+    for(const p of ball.trail)p.life-=dt;
+    ball.trail=ball.trail.filter(p=>p.life>0);
+  }
+    }
+    /** Сдвигает босса и запускает его атаки. В паузе движение прекращается. */
+    updateBoss(dt){
+    if(this.state==='playing'&&this.boss){
+  const boss=this.boss;
+  boss.phaseTime+=dt;
+  boss.lock=Math.max(0,boss.lock-dt);
+  boss.hitFlash=Math.max(0,boss.hitFlash-dt);
+  if(boss.kind==='reactor'){
+    boss.x+=boss.vx*dt;
+    if(boss.x>boss.maxX){boss.x=boss.maxX-(boss.x-boss.maxX);boss.vx=-Math.abs(boss.vx)}
+    else if(boss.x<boss.minX){boss.x=boss.minX+(boss.minX-boss.x);boss.vx=Math.abs(boss.vx)}
+    boss.y=145+(this.reducedMotion?0:18*Math.sin(boss.phaseTime*.95));
+  }else{
+    boss.x+=boss.vx*dt;
+    if(boss.x>boss.maxX){boss.x=boss.maxX-(boss.x-boss.maxX);boss.vx=-Math.abs(boss.vx)}
+    else if(boss.x<boss.minX){boss.x=boss.minX+(boss.minX-boss.x);boss.vx=Math.abs(boss.vx)}
+    boss.y=153+(this.reducedMotion?0:14*Math.sin(boss.phaseTime*1.25));
+  }
+  boss.shotClock+=dt;
+  const interval=boss.kind==='reactor'?2.9:3.5;
+  if(boss.shotClock>=interval){boss.shotClock-=interval;this.shootBoss(boss)}
+    }
+  }
+    /** Перемещает платформу по управлению с ограничением границ арены. */
+    updatePaddle(dt){
+    const move=(this.keys.ArrowRight||this.keys.KeyD?1:0)-(this.keys.ArrowLeft||this.keys.KeyA?1:0);
+    if(move!==0)this.targetX+=move*CFG.paddleSpeed*dt*this.settings.sensitivity/100;
+    this.targetX=clamp(this.targetX,CFG.left+this.paddle.w/2,CFG.right-this.paddle.w/2);
+    this.paddle.x+=(this.targetX-this.paddle.x)*Math.min(1,dt*23);
+  }
+    /** Уменьшает таймеры усилений и восстанавливает параметры после окончания действия. */
+    updateEffectTimers(dt){
+    for(const b of this.bricks)b.lock=Math.max(0,b.lock-dt);
+    for(const kind of ['pulse','wide','slow','magnet']){
+  if(this.timers[kind]<=0)continue;
+  const old=this.timers[kind];this.timers[kind]=Math.max(0,old-dt);
+  if(old>0&&this.timers[kind]===0){
+    if(kind==='wide')this.paddle.w=CFG.paddleW;
+    if(kind==='slow')for(const ball of this.activeBalls())if(this.ballSpeed(ball)>0)this.setBallSpeed(Math.min(CFG.maxSpeed,this.ballSpeed(ball)/.75),ball);
+    if(kind==='pulse')for(const ball of this.activeBalls())if(this.ballSpeed(ball)>CFG.maxSpeed*.83)this.setBallSpeed(CFG.maxSpeed*.83,ball);
+    this.updateUI();
+  }
+    }
+      }
   updateDrops(dt){
     for(let i=this.drops.length-1;i>=0;i--){
       const d=this.drops[i];d.y+=d.vy*dt;d.spin+=dt*4;
@@ -800,16 +821,16 @@ class Game {
         beep(600,.09,.03,'sine');return;
       }
       let angle=relative*1.11;
-      // Centre hits should not lock the ball into a vertical loop.
+      // Центральное попадание не должно создавать бесконечную вертикальную траекторию.
       if(Math.abs(angle)<.12)angle=(b.vx<0?-1:1)*.12;
       b.vx=speed*Math.sin(angle);b.vy=-Math.abs(speed*Math.cos(angle));
       this.resetCombo();
       beep(275+Math.abs(relative)*180,.055,.023);
     }
     for(let i=this.bricks.length-1;i>=0;i--){
-      // Blast damage can delete several neighbours while this loop is active.
-      // The array may shrink by more than one position: never dereference a
-      // now-missing index, especially during a piercing multi-ball impulse.
+      // Взрыв может удалить сразу несколько соседних блоков во время обхода.
+      // Массив может сократиться более чем на одну позицию, поэтому
+      // каждый индекс проверяем, особенно при пробивном мультишаре.
       const brick=this.bricks[i];
       if(!brick)continue;
       if(brick.lock>0)continue;
@@ -1311,11 +1332,13 @@ ui.volume.addEventListener('input',()=>game.setSetting('volume',ui.volume.value)
 ui.effects.addEventListener('change',()=>game.setSetting('effects',ui.effects.value));
 ui.sensitivity.addEventListener('input',()=>game.setSetting('sensitivity',ui.sensitivity.value));
 window.addEventListener('keydown',e=>{
-  if(['ArrowLeft','ArrowRight','Space','KeyA','KeyD','KeyF','KeyP','Escape','Enter'].includes(e.code))e.preventDefault();
+  // Не перехватываем стрелки и пробел у ползунков в панели настроек:
+  // браузер должен самостоятельно обрабатывать управление доступными полями.
   if(game.settingsOpen){
     if(e.code==='Escape'){game.toggleSettings(false);e.preventDefault()}
     return;
   }
+  if(['ArrowLeft','ArrowRight','Space','KeyA','KeyD','KeyF','KeyP','Escape','Enter'].includes(e.code))e.preventDefault();
   game.keys[e.code]=true;
   if(e.repeat)return;
   if(e.code==='Space'||e.code==='Enter')game.launch();
