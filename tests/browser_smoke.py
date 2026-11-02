@@ -445,4 +445,18 @@ with sync_playwright() as pw:
         assert not errors,errors
         print(f'{label}: local checkpoint, reload, continue and reset OK')
         context.close()
+    # Проверяем настоящий порядок загрузки отдельных скриптов без inline-подмены.
+    # Это защищает запуск напрямую через index.html на локальном компьютере.
+    local_context=browser.new_context()
+    local_page=local_context.new_page()
+    local_errors=[]
+    local_page.on('pageerror',lambda error: local_errors.append(str(error)))
+    local_page.goto((root / 'index.html').as_uri())
+    local_page.wait_for_function('typeof window.__impulseDebug === "function"')
+    assert local_page.evaluate('window.__impulseDebug().state') == 'menu'
+    assert local_page.locator('#overlayAction').is_visible()
+    assert not local_errors,local_errors
+    local_context.close()
+    print('file:// запуск с отдельными скриптами: OK')
+
     browser.close()
