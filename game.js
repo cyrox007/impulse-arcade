@@ -909,11 +909,21 @@ class Game {
       else{b.y=rect.y+rect.h+b.r+1;b.vy=Math.abs(b.vy)}
     }
   }
-  statsSummary(){
-    return 'Время: '+Math.floor(this.runStats.seconds)+' с · Попадания: '+this.runStats.hits+
-      ' · Разрушено: '+this.runStats.broken+' · Импульсы: '+this.runStats.pulses+
-      ' · Лучшая серия: '+this.runStats.maxCombo+' · Спасения: '+this.runStats.barriers+
-      ' · Разделений: '+this.runStats.splits;
+  /**
+   * Формируем наглядный итог забега из уже существующих счётчиков.
+   * Статистика обновляется игровой моделью, поэтому отдельное состояние
+   * результатов не создаётся и не расходится с сохранённой контрольной точкой.
+   */
+  runStatsMarkup(){
+    const totalSeconds=Math.floor(Math.max(0,this.runStats.seconds));
+    const elapsed=`${Math.floor(totalSeconds/60)}:${String(totalSeconds%60).padStart(2,'0')}`;
+    const stats=this.runStats;
+    return `<div class="run-stats" role="group" aria-label="Статистика забега">
+      <div><span>ВРЕМЯ</span><strong>${elapsed}</strong></div>
+      <div><span>БЛОКОВ</span><strong>${stats.broken}</strong></div>
+      <div><span>ЛУЧШАЯ СЕРИЯ</span><strong>${stats.maxCombo}</strong></div>
+    </div>
+    <div class="run-stats-more">ПОПАДАНИЯ: ${stats.hits} · ИМПУЛЬСЫ: ${stats.pulses} · СПАСЕНИЯ: ${stats.barriers} · РАЗДЕЛЕНИЯ: ${stats.splits}</div>`;
   }
   overlayContent(kind){
     const checkpoint=this.checkpoint&&['intro','lost'].includes(kind)?this.checkpoint:null;
@@ -922,10 +932,11 @@ class Game {
       intro:{icon:'✦',kicker:'НОВАЯ АРКАДА',title:'ИМПУЛЬС',text:'Пять секторов, мультишар и новые испытания. В третьем секторе Страж ядра, в пятом — Реактор.',action:resumeLabel||'НАЧАТЬ ИГРУ',small:checkpoint?'Сохранено на этом устройстве в начале сектора '+(checkpoint.sector+1)+'.':'На телефоне двигай платформу пальцем по полю. На ПК — мышь или стрелки.'},
       pause:{icon:'Ⅱ',kicker:'ИГРА ПРИОСТАНОВЛЕНА',title:'ПАУЗА',text:'Шар ждёт твоего возвращения.',action:'ПРОДОЛЖИТЬ',small:'Клавиша P — пауза / продолжить.'},
       between:{icon:'✧',kicker:'СЕКТОР ОЧИЩЕН',title:'ОТЛИЧНАЯ РАБОТА',text:`Следующий сектор: ${LEVELS[this.level+1]?.name ?? 'ФИНАЛ'}. Бонус за жизни: +${this.lastSectorBonus}. Лучшая серия: ${this.lastSectorBestCombo}. Жизни и счёт сохраняются.`,action:'СЛЕДУЮЩИЙ СЕКТОР',small:'Впереди более прочные блоки.'},
-      won:{icon:'★',kicker:'МИССИЯ ВЫПОЛНЕНА',title:'ПЯТЬ СЕКТОРОВ И ДВА БОССА ПРОЙДЕНЫ',text:`Финальный счёт: ${this.score.toLocaleString('ru-RU')}. Бонус финального сектора: +${this.lastSectorBonus}. Твой рекорд: ${this.best.toLocaleString('ru-RU')}.`,action:'СЫГРАТЬ СНОВА',small:this.statsSummary()},
-      lost:{icon:'✕',kicker:'ПОПЫТКА ЗАВЕРШЕНА',title:'ИГРА ОКОНЧЕНА',text:`Ты набрал ${this.score.toLocaleString('ru-RU')} очков. Попробуй ещё раз!`,action:resumeLabel||'НОВАЯ ПОПЫТКА',small:checkpoint?'Сохранена контрольная точка перед сектором '+(checkpoint.sector+1)+'.':this.statsSummary()}
+      won:{icon:'★',kicker:'МИССИЯ ВЫПОЛНЕНА',title:'ПЯТЬ СЕКТОРОВ И ДВА БОССА ПРОЙДЕНЫ',text:`Финальный счёт: ${this.score.toLocaleString('ru-RU')}. Бонус финального сектора: +${this.lastSectorBonus}. Твой рекорд: ${this.best.toLocaleString('ru-RU')}.`,action:'СЫГРАТЬ СНОВА',small:'Рекорд сохранён на этом устройстве.'},
+      lost:{icon:'✕',kicker:'ПОПЫТКА ЗАВЕРШЕНА',title:'ИГРА ОКОНЧЕНА',text:`Ты набрал ${this.score.toLocaleString('ru-RU')} очков. Попробуй ещё раз!`,action:resumeLabel||'НОВАЯ ПОПЫТКА',small:checkpoint?'Сохранена контрольная точка перед сектором '+(checkpoint.sector+1)+'.':'Результат можно улучшить новой попыткой.'}
     }[kind];
-    return `<div class="overlay-icon" aria-hidden="true">${common.icon}</div><div class="overlay-kicker">${common.kicker}</div><h2>${common.title}</h2><p>${common.text}</p><button type="button" class="overlay-action" id="overlayAction">${common.action}</button>${checkpoint?'<button type="button" class="overlay-action overlay-new-game" id="newGameAction">НОВАЯ ИГРА</button>':''}<div class="overlay-small">${common.small}</div>`;
+    const results=(kind==='won'||kind==='lost')?this.runStatsMarkup():'';
+    return `<div class="overlay-icon" aria-hidden="true">${common.icon}</div><div class="overlay-kicker">${common.kicker}</div><h2>${common.title}</h2><p>${common.text}</p>${results}<button type="button" class="overlay-action" id="overlayAction">${common.action}</button>${checkpoint?'<button type="button" class="overlay-action overlay-new-game" id="newGameAction">НОВАЯ ИГРА</button>':''}<div class="overlay-small">${common.small}</div>`;
   }
   showOverlay(kind){
     ui.overlay.innerHTML=this.overlayContent(kind);ui.overlay.hidden=false;
@@ -937,7 +948,11 @@ class Game {
   updateUI(){
     ui.score.textContent=String(this.score).padStart(6,'0');ui.best.textContent=String(this.best).padStart(6,'0');
     ui.lives.textContent='♥ '.repeat(Math.max(0,this.lives)).trim()||'—';
-    ui.stage.textContent=`СЕКТОР ${String(this.level+1).padStart(2,'0')} / ${String(LEVELS.length).padStart(2,'0')}`;
+    // Счётчик относится только к фазе кирпичей: во время боя с боссом
+    // число 0 не должно создавать впечатление завершённого сектора.
+    const remaining=this.sectorPhase==='bricks'&&this.bricks.length?
+      ` · ${this.bricks.length} БЛОКОВ`:'';
+    ui.stage.textContent=`СЕКТОР ${String(this.level+1).padStart(2,'0')} / ${String(LEVELS.length).padStart(2,'0')}${remaining}`;
     ui.compactSector.textContent=`${String(this.level+1).padStart(2,'0')}/${String(LEVELS.length).padStart(2,'0')}`;
     ui.charge.style.width=`${this.energy}%`;ui.chargeText.textContent=`${Math.floor(this.energy)}%`;
     ui.chargeBar.setAttribute('aria-valuenow',String(Math.floor(this.energy)));
