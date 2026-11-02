@@ -366,7 +366,7 @@ const IMPULSE_RENDER_METHODS = {
     if(sprite&&p.w===(wide?145:CFG.paddleW)){
       ctx.drawImage(sprite,p.x-p.w/2-26,p.y-26);
     }else{
-      // Safe fallback for environments without an offscreen canvas.
+      // Если дополнительный Canvas недоступен, используем прямую отрисовку.
       this.paintPaddle(ctx,p.w,wide,p.x-p.w/2,p.y);
     }
     if(this.timers.magnet>0){
