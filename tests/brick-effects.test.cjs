@@ -219,7 +219,7 @@ test('0.4: статистика забега учитывает игровое �
   assert.equal(game.runStats.seconds,elapsed);
   game.launch();
   game.end('lost');
-  assert.ok(elements.get('overlay').innerHTML.includes('Разрушено: 1'));
+  assert.match(elements.get('overlay').innerHTML, /БЛОКОВ<\/span><strong>1<\/strong>/);
   game.launch();
   assert.equal(game.runStats.hits,0);
   assert.equal(game.runStats.seconds,0);
