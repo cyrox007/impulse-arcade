@@ -14,6 +14,7 @@ css = (root / 'style.css').read_text(encoding='utf-8')
 renderer = (root / 'game-render.js').read_text(encoding='utf-8')
 js = (root / 'game.js').read_text(encoding='utf-8')
 html = re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]*)?">', '', html)
+html = re.sub(r'<script src="game-render\\.js(?:\\?[^"]*)?" defer></script>', '', html)
 html = re.sub(r'<script src="game\.js(?:\?[^"]*)?" defer></script>', '', html)
 
 with sync_playwright() as pw:
