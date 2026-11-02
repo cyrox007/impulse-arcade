@@ -527,3 +527,38 @@ test('0.8.1: скриншот 03/05 — нижний удар по крайне�
   assert.equal(game.boss?.kind,'guardian');
 });
 
+
+test('разделённые подсистемы боссов и бонусов используют единый экземпляр Game', () => {
+  const {game} = createEnvironment();
+  const bosses = readFileSync(path.join(root,'game-bosses.js'),'utf8');
+  const effects = readFileSync(path.join(root,'game-effects.js'),'utf8');
+  const model = readFileSync(path.join(root,'game.js'),'utf8');
+
+  assert.match(bosses,/const IMPULSE_BOSS_METHODS =/);
+  assert.match(effects,/const IMPULSE_EFFECT_METHODS =/);
+  assert.doesNotMatch(model,/^  updateBoss\(/m);
+  assert.doesNotMatch(model,/^  updateEffectTimers\(/m);
+  assert.doesNotMatch(model,/^  beginReactor\(/m);
+  assert.match(model,/Object\.assign\(Game\.prototype,IMPULSE_BOSS_METHODS\)/);
+  assert.match(model,/Object\.assign\(Game\.prototype,IMPULSE_EFFECT_METHODS\)/);
+
+  game.launch();
+  game.launch();
+  game.level=2;
+  game.beginGuardian();
+  assert.ok(game.boss);
+  const startPhase=game.boss.phaseTime;
+  game.togglePause();
+  game.updateBoss(.2);
+  assert.equal(game.boss.phaseTime,startPhase);
+  game.launch();
+  game.updateBoss(.2);
+  assert.ok(game.boss.phaseTime>startPhase);
+
+  game.applyDrop('wide');
+  const enlarged=game.paddle.w;
+  assert.ok(enlarged>96);
+  game.updateEffectTimers(12.1);
+  assert.equal(game.timers.wide,0);
+  assert.equal(game.paddle.w,96);
+});
