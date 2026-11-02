@@ -11,10 +11,12 @@ from playwright.sync_api import sync_playwright
 root = Path(__file__).resolve().parents[1]
 html = (root / 'index.html').read_text(encoding='utf-8')
 css = (root / 'style.css').read_text(encoding='utf-8')
+physics = (root / 'game-physics.js').read_text(encoding='utf-8')
 renderer = (root / 'game-render.js').read_text(encoding='utf-8')
 js = (root / 'game.js').read_text(encoding='utf-8')
 input_js = (root / 'game-input.js').read_text(encoding='utf-8')
 html = re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]*)?">', '', html)
+html = re.sub(r'<script src="game-physics\.js(?:\?[^"]*)?" defer></script>', '', html)
 html = re.sub(r'<script src="game-render\.js(?:\?[^"]*)?" defer></script>', '', html)
 html = re.sub(r'<script src="game\.js(?:\?[^"]*)?" defer></script>', '', html)
 html = re.sub(r'<script src="game-input\.js(?:\?[^"]*)?" defer></script>', '', html)
@@ -41,6 +43,7 @@ with sync_playwright() as pw:
         page.on('pageerror', lambda error: errors.append(str(error)))
         page.set_content(html)
         page.add_style_tag(content=css)
+        page.add_script_tag(content=physics)
         page.add_script_tag(content=renderer)
         page.add_script_tag(content=js)
         page.add_script_tag(content=input_js)
@@ -417,7 +420,7 @@ with sync_playwright() as pw:
     # Dedicated real-origin browser session: localStorage must survive a reload.
     # The response is served by Playwright itself, with no external network.
     inline_html=html.replace('</head>', '<style>'+css+'</style></head>').replace(
-        '</body>', '<script>'+renderer+'</script><script>'+js+'</script><script>'+input_js+'</script></body>')
+        '</body>', '<script>'+physics+'</script><script>'+renderer+'</script><script>'+js+'</script><script>'+input_js+'</script></body>')
     for label,width,height in [('checkpoint-mobile-320',320,568),('checkpoint-mobile-393',393,852)]:
         context=browser.new_context(viewport={'width':width,'height':height},
                                     is_mobile=True,has_touch=True)
