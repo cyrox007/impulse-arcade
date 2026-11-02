@@ -48,7 +48,7 @@ function beep(frequency, duration=.06, volume=.035, type='sine') {
   try {
     if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
     if (audioContext.state === 'suspended') audioContext.resume().catch(()=>{});
-    // Avoid bursts of overlapping oscillators on mobile after rapid collisions.
+    // Ограничиваем частоту коротких звуков, чтобы столкновения не перегружали мобильный аудиодвижок.
     const now=audioContext.currentTime;
     if(now-lastBeepAt<.05)return;
     lastBeepAt=now;
@@ -68,7 +68,7 @@ function roundRect(x,y,w,h,r,fillStyle,strokeStyle,target=ctx){
   if(fillStyle){target.fillStyle=fillStyle;target.fill()}
   if(strokeStyle){target.strokeStyle=strokeStyle;target.stroke()}
 }
-// Cached 480×720 layers: expensive shadows/gradients are only repainted when needed.
+// Кэшируем слои 480×720: дорогие тени и градиенты перерисовываются только при изменении состояния.
 function createLayer(width=CFG.width,height=CFG.height){
   if(typeof document.createElement!=='function')return null;
   const layer=document.createElement('canvas');layer.width=width;layer.height=height;
@@ -76,7 +76,7 @@ function createLayer(width=CFG.width,height=CFG.height){
   return target?{canvas:layer,ctx:target}:null;
 }
 function safeLoadBest(){try{return Math.max(0,Number(localStorage.getItem(CFG.storageKey))||0)}catch(_){return 0}}
-function safeSaveBest(value){try{localStorage.setItem(CFG.storageKey,String(value))}catch(_){/* file:/// or restricted storage */}}
+function safeSaveBest(value){try{localStorage.setItem(CFG.storageKey,String(value))}catch(_){/* Локальное хранилище может быть запрещено браузером */}}
 const SETTINGS_DEFAULTS=Object.freeze({sound:false,volume:60,effects:'auto',sensitivity:100});
 function safeLoadSettings(){
   try{
@@ -95,8 +95,8 @@ function safeSaveSettings(value){
   try{localStorage.setItem(CFG.settingsKey,JSON.stringify({version:1,...value}));return true}
   catch(_){return false}
 }
-// Checkpoints are intentionally taken only on cleared sector boundaries.
-// Never persist moving entities, ongoing boss fights or partially destroyed bricks.
+// Контрольные точки создаются только после завершения сектора.
+// Не сохраняем подвижные объекты, незавершённые бои с боссами и частично разрушенные блоки.
 const CHECKPOINT_VERSION=1;
 const STAT_KEYS=['seconds','hits','broken','pulses','maxCombo','barriers','splits'];
 function safeLoadCheckpoint(){
@@ -122,7 +122,7 @@ function safeSaveCheckpoint(checkpoint){
   catch(_){return false}
 }
 function safeClearCheckpoint(){
-  try{localStorage.removeItem(CFG.checkpointKey)}catch(_){/* storage may be blocked */}
+  try{localStorage.removeItem(CFG.checkpointKey)}catch(_){/* Доступ к хранилищу может быть запрещён */}
 }
 
 class Game {
@@ -143,7 +143,7 @@ class Game {
     this.lastSectorBonus=0;this.lastSectorBestCombo=0;
     this.stars=Array.from({length:68},(_,i)=>({x:(i*137.37)%CFG.width,y:(i*231.59)%CFG.height,r:i%7===0?1.6:.8,s:(i%4)*.16+.18}));
     this.backdropLayer=createLayer();this.brickLayer=createLayer();this.bricksDirty=true;this.brickPaintCount=0;
-    // A few tiny, transparent sprites replace gradients/shadows rebuilt every frame.
+    // Небольшие прозрачные спрайты заменяют дорогое рисование градиентов и теней в каждом кадре.
     this.spritePaintCount=0;
     this.sprites={
       paddleNormal:this.makePaddleSprite(CFG.paddleW,false),
@@ -201,7 +201,7 @@ class Game {
     this.runStats.maxCombo=Math.max(this.runStats.maxCombo,this.comboHits);
     return this.comboMultiplier();
   }
-  // Enforce a minimum vertical component at extreme angles without changing speed.
+  // Гарантируем минимальную вертикальную составляющую скорости, сохраняя общую скорость шара.
   stabilizeBallAngle(b=this.ball){
     const speed=this.ballSpeed(b),minY=speed*.20;
     if(speed<1 || Math.abs(b.vy)>=minY)return;
@@ -260,14 +260,14 @@ class Game {
     const checkpoint={version:CHECKPOINT_VERSION,sector:this.level+1,
       score:this.score,lives:this.lives,energy:this.energy,
       stats:Object.fromEntries(STAT_KEYS.map(k=>[k,this.runStats[k]]))};
-    // Storage may be disabled or full: never report an unsaved checkpoint as saved.
+    // Хранилище может быть недоступно или заполнено: не выдаём несохранённую точку за записанную.
     if(!safeSaveCheckpoint(checkpoint))return false;
     this.checkpoint=checkpoint;
     return true;
   }
   continueGame(){
     if(!this.checkpoint||!['menu','lost'].includes(this.state))return false;
-    // Re-validate persisted values before applying, including in-memory edits.
+    // Повторно проверяем данные контрольной точки перед применением, даже если объект изменили в памяти.
     const saved=this.checkpoint;
     const valid=saved.version===CHECKPOINT_VERSION&&
       Number.isInteger(saved.sector)&&saved.sector>=1&&saved.sector<LEVELS.length&&
@@ -289,7 +289,7 @@ class Game {
     this.startLevel();return true;
   }
   startNewGame(){
-    // Explicit new game replaces any previous checkpoint, including after defeat.
+    // Новая игра удаляет предыдущую контрольную точку, в том числе после поражения.
     this.checkpoint=null;safeClearCheckpoint();
     this.score=0;this.lives=3;this.energy=0;this.level=0;this.timers={pulse:0,wide:0,slow:0,magnet:0};
     this.resetCombo();this.bestComboInSector=0;this.lastSectorBonus=0;this.lastSectorBestCombo=0;
@@ -391,7 +391,7 @@ class Game {
   }
   end(kind){
     if(kind==='won'){
-      this.checkpoint=null;safeClearCheckpoint(); // Never resume a completed campaign.
+      this.checkpoint=null;safeClearCheckpoint(); // Завершённую кампанию нельзя возобновлять с контрольной точки.
     }
     this.setState(kind);this.updateBest();
     this.showOverlay(kind);beep(kind==='won'?720:180,.25,.04,'triangle');
@@ -478,8 +478,8 @@ class Game {
     return true;
   }
   updateMovingBricks(dt){
-    // Free-roaming targets share the same obstacle field; no rails or corridors.
-    // Try each axis independently and bounce off any remaining brick or wall.
+    // Свободно движущиеся цели используют общее поле препятствий, без искусственных рельсов.
+    // Проверяем оси отдельно: отражаем цель от оставшихся кирпичей и стен.
     const movers=this.bricks.filter(b=>b.type==='moving');
     const occupied=(brick,x,y)=>this.bricks.some(other=>
       other!==brick&&x<other.x+other.w+1&&x+brick.w+1>other.x&&
@@ -529,7 +529,7 @@ class Game {
     }
   }
   collisionSide(rect,prevX,prevY,ball){
-    // Use previous circle edges, so glancing impacts do not switch vulnerable sides.
+    // Определяем грань по предыдущему положению краёв шара: касательные удары не меняют уязвимую сторону.
     if(prevY+ball.r<=rect.y+1)return 'U';
     if(prevY-ball.r>=rect.y+rect.h-1)return 'D';
     if(prevX+ball.r<=rect.x+1)return 'L';
@@ -551,13 +551,13 @@ class Game {
     if(this.level===LEVELS.length-1)this.end('won');
     else {
       this.setState('between');
-      this.saveCheckpoint(); // The next untouched sector can be resumed after a reload.
+      this.saveCheckpoint(); // Следующий ещё не начатый сектор можно восстановить после перезагрузки.
       this.showOverlay('between');beep(740,.19,.06);
     }
   }
   updateBest(){if(this.score>this.best){this.best=this.score;safeSaveBest(this.best)}}
   hitBrick(brick,index){
-    // Resolve the current index: area damage may have removed neighbouring bricks.
+    // После урона по площади пересчитываем индекс: соседние блоки могли уже исчезнуть.
     const actualIndex=this.bricks.indexOf(brick);
     if(actualIndex<0||brick.lock>0)return false;
     brick.lock=.11;brick.hp--;if(brick.type!=='moving')this.bricksDirty=true;this.runStats.hits++;
@@ -580,8 +580,8 @@ class Game {
     this.updateUI();return true;
   }
   blastNeighbors(source){
-    // A blast removes one HP from orthogonally adjacent bricks. It never
-    // recursively detonates another blast brick or grants extra combo hits.
+    // Взрыв снимает одно очко прочности с соседних блоков по вертикали и горизонтали.
+    // Цепные детонации и дополнительные комбо за вторичный урон запрещены.
     for(const target of [...this.bricks]){
       if(Math.abs(target.row-source.row)+Math.abs(target.col-source.col)!==1)continue;
       const index=this.bricks.indexOf(target);
@@ -616,8 +616,8 @@ class Game {
     this.score+=75;this.updateBest();this.addParticles(this.paddle.x,this.paddle.y,12,'#ffc477');beep(850,.13,.05);
     this.updateUI();
   }
-  // Every brick family has its own lightweight destruction language.
-  // Visual effects never change scoring, collisions or the brick cache.
+  // Для каждого типа блока используется отдельный лёгкий визуальный эффект разрушения.
+  // Визуальные эффекты не изменяют очки, столкновения и кэш кирпичей.
   blockEffect(brick,destroyed,secondary=false){
     const x=brick.x+brick.w/2,y=brick.y+brick.h/2;
     const colors={
@@ -638,17 +638,17 @@ class Game {
       return;
     }
     if(brick.type==='normal'||brick.type==='moving'||brick.type==='charge'||brick.type==='prism'||brick.type==='directional'){
-      // Glass-like fragments and a small cyan pulse.
+      // Стеклянные осколки и короткий голубой импульс.
       this.addWave(x,y,highlight,33,.20,1.5);
     }else if(brick.type==='armor'){
-      // Heavy amber chips and a tight metallic shock ring.
+      // Тяжёлые янтарные осколки и компактная металлическая ударная волна.
       this.addWave(x,y,highlight,41,.26,2.3);
     }else if(brick.type==='core'){
-      // Two staggered energy ripples.
+      // Две последовательно расходящиеся энергетические волны.
       this.addWave(x,y,color,49,.32,2.6);
       this.addWave(x,y,highlight,28,.20,1.5);
     }else if(brick.type==='blast'){
-      // Short radial explosion. Never recursively triggers gameplay damage.
+      // Короткий радиальный взрыв без повторного игрового урона.
       this.addWave(x,y,color,64,.31,3.5,'burst');
       this.addWave(x,y,highlight,95,.35,1.8);
       this.flash=Math.max(this.flash,this.reducedMotion ? .05 : .12);
@@ -660,7 +660,7 @@ class Game {
     this.waves.push({x,y,color,radius,duration,life:duration,width,kind});
   }
   addParticles(x,y,n,color,{shard=false,life=0}={}){
-    // Bounded across combo bursts, explosions and simultaneous brick removals.
+    // Ограничиваем количество эффектов при серии комбо, взрывах и множественном разрушении.
     const max=180,count=Math.min(this.reducedMotion?Math.ceil(n*.33):n,max);
     if(this.particles.length+count>max)this.particles.splice(0,this.particles.length+count-max);
     for(let i=0;i<count;i++){
@@ -677,7 +677,7 @@ class Game {
       ctx.strokeStyle=wave.color;ctx.lineWidth=wave.width*(1-progress*.55);
       ctx.beginPath();ctx.arc(wave.x,wave.y,radius,0,Math.PI*2);ctx.stroke();
       if(wave.kind==='burst'){
-        // Four crisp directional light streaks, no per-frame gradients.
+        // Четыре направленных световых штриха без градиентов, создаваемых в каждом кадре.
         const start=radius*.55,end=radius+12*(1-progress);
         ctx.beginPath();
         ctx.moveTo(wave.x-start,wave.y);ctx.lineTo(wave.x-end,wave.y);
@@ -882,7 +882,7 @@ class Game {
       if((b.x-closeX)**2+(b.y-closeY)**2<=b.r*b.r){
         const vulnerable=this.guardianVulnerable();
         if(guardian.lock<=0&&vulnerable&&prevY-b.r>=guardian.y+guardian.h-2&&b.vy<0)this.damageGuardian();
-        // A shielded guardian always reflects. Pulse pierces only when exposed.
+        // Защищённый босс отражает шар; пробивание действует только в уязвимой фазе.
         if(this.state==='playing'&&(!vulnerable||prevY-b.r<guardian.y+guardian.h-2||b.vy>=0||this.timers.pulse<=0))
           this.reflectBallFromRect(guardian,prevX,prevY,b);
       }
@@ -972,7 +972,7 @@ class Game {
     }
     this.drawMovingBricks();this.drawGuardian();this.drawEnemyShots();this.drawDrops();this.drawParticles();this.drawWaves();this.drawShield();this.drawPaddle();this.drawBall();this.drawGameplayStatus();
     if(this.flash>0){ctx.fillStyle=`rgba(252,114,201,${Math.min(.2,this.flash*.4)})`;ctx.fillRect(0,0,w,h)}
-    // Opt-in on-device FPS overlay: ?fps=1 (no clutter during normal play).
+    // Диагностика FPS включается параметром ?fps=1 и не загромождает обычный интерфейс.
     if(this.profileEnabled){
       const m=this.performance;
       ctx.fillStyle='#081327eb';ctx.fillRect(CFG.left+8,CFG.height-110,198,44);
@@ -1038,7 +1038,7 @@ class Game {
       target.fillText(brick.type==='charge'?'⚡':'✧',brick.x+brick.w/2,brick.y+18);
     }
     if(brick.type==='directional'){
-      // Arrow shows the only unarmored face; draw on the cached brick layer.
+      // Стрелка показывает единственную незащищённую грань; рисуется в кэшированном слое кирпичей.
       target.strokeStyle='#e8ffae';target.lineWidth=3;target.beginPath();
       const midX=brick.x+brick.w/2,midY=brick.y+brick.h/2;
       if(brick.face==='U'){target.moveTo(midX-10,brick.y+4);target.lineTo(midX+10,brick.y+4)}
@@ -1054,7 +1054,7 @@ class Game {
     if(brick.type==='core'){target.fillStyle='#fff2ff';target.beginPath();target.moveTo(brick.x+brick.w/2,brick.y+5);target.lineTo(brick.x+brick.w/2+8,brick.y+brick.h/2);target.lineTo(brick.x+brick.w/2,brick.y+brick.h-5);target.lineTo(brick.x+brick.w/2-8,brick.y+brick.h/2);target.fill()}
   }}
   drawMovingBricks(){
-    // Same silhouette as ordinary bricks; no movement rails or special lanes.
+    // Силуэт как у обычного кирпича; не добавляем визуальных направляющих движения.
     for(const brick of this.bricks){
       if(brick.type!=='moving')continue;
       roundRect(brick.x,brick.y,brick.w,brick.h,5,'#337f9d','#84d5f4');
@@ -1070,7 +1070,7 @@ class Game {
       ctx.fillStyle='#ffe2ad';ctx.beginPath();ctx.arc(shot.x,shot.y,shot.r,0,Math.PI*2);ctx.fill();
       ctx.fillStyle='#ff7f81';ctx.beginPath();ctx.arc(shot.x,shot.y,shot.r*.48,0,Math.PI*2);ctx.fill();
     }
-    // An orange blink on the boss telegraphs its next projectile.
+    // Оранжевое мигание босса предупреждает о следующем снаряде.
     if(this.boss&&this.boss.shotClock> (this.boss.kind==='reactor'?2.4:3.0)){
       ctx.globalAlpha=.5+.4*Math.sin(this.time*19);
       ctx.strokeStyle='#ffbe7a';ctx.lineWidth=2;
@@ -1087,7 +1087,7 @@ class Game {
       target.closePath();target.fillStyle=fill;target.fill();
       if(stroke){target.strokeStyle=stroke;target.lineWidth=2;target.stroke()}
     };
-    // Large silhouette, mechanical fins and a halo are painted ONCE per phase.
+    // Корпус, механические плавники и ореол рисуются один раз на фазу.
     const halo=target.createRadialGradient(cx,cy,6,cx,cy,73);
     halo.addColorStop(0,shielded?'#58dcff8c':'#ff70deaa');
     halo.addColorStop(1,'#00000000');
@@ -1106,7 +1106,7 @@ class Game {
     target.strokeStyle=shielded?'#9ef4ff':'#ffe2ff';target.lineWidth=3;
     target.beginPath();target.arc(cx,cy,shielded?25:31,0,Math.PI*2);target.stroke();
     if(shielded){
-      // Inward-closing armor shutters visually cover the vulnerable core.
+      // Смыкающиеся бронезаслонки визуально закрывают уязвимое ядро.
       poly([[69,43],[99,49],[103,86],[69,96],[55,76]],'#477b98','#b5f3ff');
       poly([[155,43],[125,49],[121,86],[155,96],[169,76]],'#477b98','#b5f3ff');
       poly([[94,59],[112,46],[130,59],[130,77],[112,91],[94,77]],'#234d70','#c4f5ff');
@@ -1115,7 +1115,7 @@ class Game {
       poly([[171,34],[147,42],[143,90],[170,100],[181,73]],'#76476f','#ffbad9');
       target.fillStyle='#fff8ff';target.beginPath();target.arc(cx,cy,9,0,Math.PI*2);target.fill();
     }
-    // Small emitters on the wings establish scale and direction.
+    // Боковые излучатели показывают масштаб и направление босса.
     for(const x of [37,187]){
       target.fillStyle=shielded?'#95ecff':'#fa9bdf';
       target.beginPath();target.arc(x,68,5,0,Math.PI*2);target.fill();
@@ -1135,7 +1135,7 @@ class Game {
       target.closePath();target.fillStyle=fill;target.fill();
       if(stroke){target.lineWidth=2;target.strokeStyle=stroke;target.stroke()}
     };
-    // Cached once: wide reactor hull, three open targets, heavy fins and vents.
+    // Один раз кэшируем корпус реактора, три мишени, плавники и вентиляционные панели.
     const glow=target.createRadialGradient(118,69,6,118,69,106);
     glow.addColorStop(0,'#ff9f5866');glow.addColorStop(1,'#ff6e2000');
     target.fillStyle=glow;target.fillRect(0,0,236,124);
@@ -1146,7 +1146,7 @@ class Game {
     poly([[88,38],[118,25],[148,38],[141,59],[95,59]],'#8e4668','#ffbf8b');
     target.fillStyle='#ffcf9d';target.fillRect(82,42,72,4);
     target.fillStyle='#e98d6d';target.fillRect(68,72,100,4);
-    // Three mounting sockets: glowing node cores are drawn live, by HP.
+    // Три посадочных гнезда: светящиеся ядра узлов обновляются по текущей прочности.
     for(const x of [60,118,176]){
       target.fillStyle='#182b42';target.beginPath();target.arc(x,90,24,0,Math.PI*2);target.fill();
       target.strokeStyle='#ffd0a0';target.lineWidth=3;target.beginPath();target.arc(x,90,24,0,Math.PI*2);target.stroke();
@@ -1162,7 +1162,7 @@ class Game {
     const sprite=this.sprites.reactor;
     if(sprite)ctx.drawImage(sprite,boss.x-24,boss.y-24);
     else{
-      // Safe cheap fallback for missing offscreen canvas.
+      // Недорогой запасной способ рисования без offscreen canvas.
       roundRect(boss.x,boss.y,boss.w,boss.h,12,'#27354c','#ffbc83');
     }
     for(const node of boss.nodes){
@@ -1196,7 +1196,7 @@ class Game {
     const sprite=shielded?this.sprites.guardianShield:this.sprites.guardianOpen;
     if(sprite)ctx.drawImage(sprite,cx-112,cy-67);
     else this.paintGuardianSprite(ctx,shielded);
-    // A low-cost rotating arc gives life to the cached artwork.
+    // Лёгкая вращающаяся дуга оживляет заранее нарисованный спрайт.
     if(!this.reducedMotion){
       const angle=this.time*(shielded?1.8:-1.3);
       ctx.strokeStyle=shielded?'#8feaff':'#ffb9fa';ctx.lineWidth=2;
@@ -1206,7 +1206,7 @@ class Game {
       ctx.globalAlpha=Math.min(.65,boss.hitFlash*3);ctx.fillStyle='#ffffff';
       ctx.beginPath();ctx.arc(cx,cy,35,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;
     }
-    // Six discrete HP cells, not a generic rectangle that resembles a brick.
+    // Шесть отдельных индикаторов прочности вместо прямоугольника, похожего на кирпич.
     ctx.textAlign='center';ctx.font='bold 12px system-ui';
     ctx.fillStyle=shielded?'#94ddff':'#ffb5e9';
     ctx.fillText(shielded?'СТРАЖ ЯДРА · ЩИТ':'СТРАЖ · УДАР СНИЗУ',cx,boss.y-42);
@@ -1268,7 +1268,7 @@ class Game {
       this.paintPaddle(ctx,p.w,wide,p.x-p.w/2,p.y);
     }
     if(this.timers.magnet>0){
-      // Thin static-color field; keep the cached paddle sprite intact.
+      // Тонкое поле статичного цвета не требует пересоздавать спрайт платформы.
       ctx.strokeStyle='#ffc57e';ctx.lineWidth=2;ctx.globalAlpha=.85;
       ctx.beginPath();ctx.moveTo(p.x-p.w/2+9,p.y-6);
       ctx.lineTo(p.x-p.w/2+9,p.y-10);ctx.lineTo(p.x+p.w/2-9,p.y-10);
@@ -1326,7 +1326,7 @@ const pointerToX=e=>{
     CFG.left+game.paddle.w/2,CFG.right-game.paddle.w/2);
 };
 canvas.addEventListener('pointerdown',e=>{
-  if(game.settingsOpen||game.activePointerId!==null)return; // Ignore extra fingers/settings taps.
+  if(game.settingsOpen||game.activePointerId!==null)return; // Игнорируем другие пальцы и касания при открытых настройках.
   if(e.pointerType==='touch'&&e.cancelable)e.preventDefault();
   game.activePointerId=e.pointerId;
   pointerToX(e);
@@ -1374,7 +1374,7 @@ let last=performance.now();
 function loop(now){
   const frameMs=Math.max(0,now-last);last=now;
   const dt=Math.min(.033,frameMs/1000);
-  // Profiling adds two high-resolution reads per frame only when ?fps=1.
+  // Замеры времени обновления и отрисовки выполняются только при ?fps=1.
   const profile=game.profileEnabled;
   const begin=profile?performance.now():0;
   game.update(dt);
@@ -1400,5 +1400,5 @@ function loop(now){
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
-// Expose a read-only diagnostic snapshot for automated smoke tests, no gameplay cheats.
+// Открываем только диагностический снимок состояния для smoke-тестов, без возможности читерства.
 window.__impulseDebug=()=>({state:game.state,score:game.score,level:game.level,lives:game.lives,bricks:game.bricks.length,energy:game.energy,combo:game.comboHits,fps:game.performance.fps,maxFrameMs:game.performance.maxFrameMs,avgUpdateMs:game.performance.avgUpdateMs,avgDrawMs:game.performance.avgDrawMs,spritePaintCount:game.spritePaintCount,shots:game.enemyShots.length,balls:game.activeBalls().length,held:game.activeBalls().filter(b=>b.held).length,moving:game.bricks.filter(b=>b.type==='moving').length,phase:game.sectorPhase,checkpointSector:game.checkpoint?.sector??null,settings:{...game.settings},bossHP:game.boss?.hp??0,shield:game.shieldCharges,particles:game.particles.length,waves:game.waves.length,stats:{...game.runStats}});
