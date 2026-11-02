@@ -561,7 +561,7 @@ test('разделение кирпичей и волн не дублирует 
   assert.doesNotMatch(modelSource, /^  hitBrick\(/m);
   assert.doesNotMatch(modelSource, /^  makeBricks\(/m);
   assert.doesNotMatch(modelSource, /^  drawWaves\(/m);
-  assert.match(modelSource, /Object\.assign\(Game\.prototype,IMPULSE_BRICK_METHODS\)/);
+  assert.match(modelSource, /Object\.assign\(\s*Game\.prototype,\s*IMPULSE_BRICK_METHODS\)/);
 
   game.launch();
   game.launch();
