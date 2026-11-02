@@ -11,9 +11,13 @@ from playwright.sync_api import sync_playwright
 root = Path(__file__).resolve().parents[1]
 html = (root / 'index.html').read_text(encoding='utf-8')
 css = (root / 'style.css').read_text(encoding='utf-8')
+renderer = (root / 'game-render.js').read_text(encoding='utf-8')
 js = (root / 'game.js').read_text(encoding='utf-8')
+input_js = (root / 'game-input.js').read_text(encoding='utf-8')
 html = re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]*)?">', '', html)
+html = re.sub(r'<script src="game-render\.js(?:\?[^"]*)?" defer></script>', '', html)
 html = re.sub(r'<script src="game\.js(?:\?[^"]*)?" defer></script>', '', html)
+html = re.sub(r'<script src="game-input\.js(?:\?[^"]*)?" defer></script>', '', html)
 
 with sync_playwright() as pw:
     binary = shutil.which('chromium') or shutil.which('google-chrome')
@@ -37,7 +41,9 @@ with sync_playwright() as pw:
         page.on('pageerror', lambda error: errors.append(str(error)))
         page.set_content(html)
         page.add_style_tag(content=css)
+        page.add_script_tag(content=renderer)
         page.add_script_tag(content=js)
+        page.add_script_tag(content=input_js)
         assert page.evaluate('window.__impulseDebug().state') == 'menu'
         assert page.locator('#compactSector').inner_text() == '01/05'
         assert page.evaluate('document.querySelector(\'meta[name="app-build"]\').content') == 'gameplay-100rc-20261101'
@@ -384,7 +390,7 @@ with sync_playwright() as pw:
     # Dedicated real-origin browser session: localStorage must survive a reload.
     # The response is served by Playwright itself, with no external network.
     inline_html=html.replace('</head>', '<style>'+css+'</style></head>').replace(
-        '</body>', '<script>'+js+'</script></body>')
+        '</body>', '<script>'+renderer+'</script><script>'+js+'</script><script>'+input_js+'</script></body>')
     for label,width,height in [('checkpoint-mobile-320',320,568),('checkpoint-mobile-393',393,852)]:
         context=browser.new_context(viewport={'width':width,'height':height},
                                     is_mobile=True,has_touch=True)
@@ -439,4 +445,18 @@ with sync_playwright() as pw:
         assert not errors,errors
         print(f'{label}: local checkpoint, reload, continue and reset OK')
         context.close()
+    # Проверяем настоящий порядок загрузки отдельных скриптов без inline-подмены.
+    # Это защищает запуск напрямую через index.html на локальном компьютере.
+    local_context=browser.new_context()
+    local_page=local_context.new_page()
+    local_errors=[]
+    local_page.on('pageerror',lambda error: local_errors.append(str(error)))
+    local_page.goto((root / 'index.html').as_uri())
+    local_page.wait_for_function('typeof window.__impulseDebug === "function"')
+    assert local_page.evaluate('window.__impulseDebug().state') == 'menu'
+    assert local_page.locator('#overlayAction').is_visible()
+    assert not local_errors,local_errors
+    local_context.close()
+    print('file:// запуск с отдельными скриптами: OK')
+
     browser.close()

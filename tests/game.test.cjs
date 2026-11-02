@@ -6,7 +6,9 @@ const vm = require('node:vm');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
+const rendererSource = readFileSync(path.join(root, 'game-render.js'), 'utf8');
 const source = readFileSync(path.join(root, 'game.js'), 'utf8');
+const inputSource = readFileSync(path.join(root, 'game-input.js'), 'utf8');
 
 function createEnvironment({fpsDebug=false,reducedMotion=false,sharedStorage=null,storageBlocked=false}={}) {
   const handlers = new Map();
@@ -59,7 +61,9 @@ function createEnvironment({fpsDebug=false,reducedMotion=false,sharedStorage=nul
     console, Math, Array, Object, String, Number, Map
   };
   vm.createContext(sandbox);
+  vm.runInContext(rendererSource, sandbox, {filename:'game-render.js'});
   vm.runInContext(source, sandbox, {filename:'game.js'});
+  vm.runInContext(inputSource, sandbox, {filename:'game-input.js'});
   return { ...vm.runInContext('({game,CFG,LEVELS})', sandbox),
     handlers, elements:records, storage, gradientCalls,
     tick(now){if(!animationFrame)throw Error('RAF was not scheduled');animationFrame(now);}
@@ -202,7 +206,11 @@ test('ограничение положения платформы и захва
 test('статический сайт не зависит от внешних JS/CSS и имеет мета-описание', () => {
   const html = readFileSync(path.join(root,'index.html'),'utf8');
   assert.match(html, /name="description"/);
+  assert.match(html, /src="game-render\.js\?v=gameplay-100rc-20261101"/);
   assert.match(html, /src="game\.js\?v=gameplay-100rc-20261101"/);
+  assert.match(html, /src="game-input\.js\?v=gameplay-100rc-20261101"/);
+  assert.ok(html.indexOf("game.js") < html.indexOf("game-input.js"), "управление загружается после модели");
+  assert.ok(html.indexOf("game-render.js") < html.indexOf("game.js"), "сначала подключается отрисовка");
   assert.match(html, /href="style\.css\?v=gameplay-100rc-20261101"/);
   assert.doesNotMatch(html, /<script[^>]*src="https?:\/\//i);
   assert.doesNotMatch(html, /<link[^>]*href="https?:\/\//i);
@@ -1862,4 +1870,60 @@ test('1.0 RC: мультишар переживает многократные �
     assert.ok(game.particles.length<=180&&game.waves.length<=24);
     assert.ok(game.activeBalls().length<=3);
   }
+});
+
+
+test('ползунки настроек сохраняют клавиатурное управление стрелками', () => {
+  const {game,handlers} = createEnvironment();
+  const keydown = handlers.get('window:keydown');
+  let cancelled = 0;
+  const event = code => ({
+    code,
+    repeat: false,
+    preventDefault() {cancelled++;}
+  });
+
+  game.toggleSettings(true);
+  keydown(event('ArrowRight'));
+  keydown(event('Space'));
+  assert.equal(cancelled, 0, 'стрелки и пробел нужны элементам настроек');
+  assert.equal(game.keys.ArrowRight, undefined);
+  assert.equal(game.state, 'menu');
+
+  keydown(event('Escape'));
+  assert.equal(game.settingsOpen, false);
+  assert.equal(cancelled, 1, 'Escape закрывает настройки');
+
+  keydown(event('ArrowRight'));
+  assert.equal(cancelled, 2, 'во время управления игрой стрелка перехватывается');
+  assert.equal(game.keys.ArrowRight, true);
+});
+
+test('рефакторинг игрового цикла сохраняет остановку босса на паузе', () => {
+  const {game} = createEnvironment();
+  game.launch();
+  game.launch();
+  game.level = 2;
+  game.beginGuardian();
+  assert.ok(game.boss);
+
+  const before = [game.boss.x, game.boss.y, game.boss.phaseTime];
+  game.togglePause();
+  game.update(0.03);
+  assert.deepEqual([game.boss.x, game.boss.y, game.boss.phaseTime], before);
+
+  game.launch();
+  game.update(0.03);
+  assert.ok(game.boss.phaseTime > before[2]);
+});
+
+test('таймер расширения платформы восстанавливает исходный размер', () => {
+  const {game,CFG} = createEnvironment();
+  game.launch();
+  game.launch();
+  game.applyDrop('wide');
+  assert.ok(game.paddle.w > CFG.paddleW);
+  game.updateEffectTimers(CFG.wideDuration);
+  assert.equal(game.paddle.w, CFG.paddleW);
+  assert.equal(game.timers.wide, 0);
 });
