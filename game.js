@@ -722,70 +722,92 @@ class Game {
       this.releaseHeldBalls();
     this.advancePhysics(dt);
   }
-  /** Интегрирует физику малыми шагами, ограничивая прохождение мяча через кирпичи. */
+  /**
+   * Движение шаров разбивается на шаги не больше 6 мс.
+   * Это снижает вероятность пропуска тонких блоков на редких кадрах.
+   * Подвижные кирпичи перемещаются один раз за шаг, а не для каждого шара.
+   */
   advancePhysics(dt){
-  const steps=Math.max(1,Math.ceil(dt/.006));
-  for(let step=0;step<steps;step++){
-    if(this.state!=='playing')break;
-    const subdt=dt/steps;
-    this.updateMovingBricks(subdt);
-    for(const ball of this.activeBalls()){
+    const steps=Math.max(1,Math.ceil(dt/.006));
+    for(let step=0;step<steps;step++){
       if(this.state!=='playing')break;
-      if(ball!==this.ball&&!this.extraBalls.includes(ball))continue;
-      this.moveBall(subdt,ball,false);
+      const subdt=dt/steps;
+      this.updateMovingBricks(subdt);
+      for(const ball of this.activeBalls()){
+        if(this.state!=='playing')break;
+        // При взрыве или потере жизни шар мог быть удалён прямо в этом кадре.
+        if(ball!==this.ball&&!this.extraBalls.includes(ball))continue;
+        this.moveBall(subdt,ball,false);
+      }
+    }
+    if(this.state==='playing')for(const ball of this.activeBalls()){
+      if(!ball.held)ball.trail.push({x:ball.x,y:ball.y,life:.2});
+      if(ball.trail.length>18)ball.trail.shift();
+      for(const particle of ball.trail)particle.life-=dt;
+      ball.trail=ball.trail.filter(particle=>particle.life>0);
     }
   }
-  if(this.state==='playing')for(const ball of this.activeBalls()){
-    if(!ball.held)ball.trail.push({x:ball.x,y:ball.y,life:.2});
-    if(ball.trail.length>18)ball.trail.shift();
-    for(const p of ball.trail)p.life-=dt;
-    ball.trail=ball.trail.filter(p=>p.life>0);
-  }
-    }
-    /** Сдвигает босса и запускает его атаки. В паузе движение прекращается. */
-    updateBoss(dt){
-    if(this.state==='playing'&&this.boss){
-  const boss=this.boss;
-  boss.phaseTime+=dt;
-  boss.lock=Math.max(0,boss.lock-dt);
-  boss.hitFlash=Math.max(0,boss.hitFlash-dt);
-  if(boss.kind==='reactor'){
+
+  /** Обновление босса выполняется только во время игры, не в паузе. */
+  updateBoss(dt){
+    if(this.state!=='playing'||!this.boss)return;
+    const boss=this.boss;
+    boss.phaseTime+=dt;
+    boss.lock=Math.max(0,boss.lock-dt);
+    boss.hitFlash=Math.max(0,boss.hitFlash-dt);
     boss.x+=boss.vx*dt;
-    if(boss.x>boss.maxX){boss.x=boss.maxX-(boss.x-boss.maxX);boss.vx=-Math.abs(boss.vx)}
-    else if(boss.x<boss.minX){boss.x=boss.minX+(boss.minX-boss.x);boss.vx=Math.abs(boss.vx)}
-    boss.y=145+(this.reducedMotion?0:18*Math.sin(boss.phaseTime*.95));
-  }else{
-    boss.x+=boss.vx*dt;
-    if(boss.x>boss.maxX){boss.x=boss.maxX-(boss.x-boss.maxX);boss.vx=-Math.abs(boss.vx)}
-    else if(boss.x<boss.minX){boss.x=boss.minX+(boss.minX-boss.x);boss.vx=Math.abs(boss.vx)}
-    boss.y=153+(this.reducedMotion?0:14*Math.sin(boss.phaseTime*1.25));
-  }
-  boss.shotClock+=dt;
-  const interval=boss.kind==='reactor'?2.9:3.5;
-  if(boss.shotClock>=interval){boss.shotClock-=interval;this.shootBoss(boss)}
+    if(boss.x>boss.maxX){
+      boss.x=boss.maxX-(boss.x-boss.maxX);
+      boss.vx=-Math.abs(boss.vx);
+    }else if(boss.x<boss.minX){
+      boss.x=boss.minX+(boss.minX-boss.x);
+      boss.vx=Math.abs(boss.vx);
+    }
+    // У двух боссов разные высоты и частоты колебаний.
+    const reactor=boss.kind==='reactor';
+    boss.y=(reactor?145:153)+(this.reducedMotion?0:
+      (reactor?18:14)*Math.sin(boss.phaseTime*(reactor?.95:1.25)));
+    boss.shotClock+=dt;
+    const interval=reactor?2.9:3.5;
+    if(boss.shotClock>=interval){
+      boss.shotClock-=interval;
+      this.shootBoss(boss);
     }
   }
-    /** Перемещает платформу по управлению с ограничением границ арены. */
-    updatePaddle(dt){
-    const move=(this.keys.ArrowRight||this.keys.KeyD?1:0)-(this.keys.ArrowLeft||this.keys.KeyA?1:0);
+
+  /** Клавиатура задаёт цель, платформа плавно следует к ней в пределах арены. */
+  updatePaddle(dt){
+    const move=(this.keys.ArrowRight||this.keys.KeyD?1:0)-
+      (this.keys.ArrowLeft||this.keys.KeyA?1:0);
     if(move!==0)this.targetX+=move*CFG.paddleSpeed*dt*this.settings.sensitivity/100;
     this.targetX=clamp(this.targetX,CFG.left+this.paddle.w/2,CFG.right-this.paddle.w/2);
     this.paddle.x+=(this.targetX-this.paddle.x)*Math.min(1,dt*23);
   }
-    /** Уменьшает таймеры усилений и восстанавливает параметры после окончания действия. */
-    updateEffectTimers(dt){
-    for(const b of this.bricks)b.lock=Math.max(0,b.lock-dt);
+
+  /**
+   * Снимает временные усиления по истечении срока.
+   * Замедление компенсируется обратным множителем только один раз.
+   */
+  updateEffectTimers(dt){
+    for(const brick of this.bricks)brick.lock=Math.max(0,brick.lock-dt);
     for(const kind of ['pulse','wide','slow','magnet']){
-  if(this.timers[kind]<=0)continue;
-  const old=this.timers[kind];this.timers[kind]=Math.max(0,old-dt);
-  if(old>0&&this.timers[kind]===0){
-    if(kind==='wide')this.paddle.w=CFG.paddleW;
-    if(kind==='slow')for(const ball of this.activeBalls())if(this.ballSpeed(ball)>0)this.setBallSpeed(Math.min(CFG.maxSpeed,this.ballSpeed(ball)/.75),ball);
-    if(kind==='pulse')for(const ball of this.activeBalls())if(this.ballSpeed(ball)>CFG.maxSpeed*.83)this.setBallSpeed(CFG.maxSpeed*.83,ball);
-    this.updateUI();
-  }
-    }
+      if(this.timers[kind]<=0)continue;
+      const previous=this.timers[kind];
+      this.timers[kind]=Math.max(0,previous-dt);
+      if(previous>0&&this.timers[kind]===0){
+        if(kind==='wide')this.paddle.w=CFG.paddleW;
+        if(kind==='slow'){
+          for(const ball of this.activeBalls())if(this.ballSpeed(ball)>0)
+            this.setBallSpeed(Math.min(CFG.maxSpeed,this.ballSpeed(ball)/.75),ball);
+        }
+        if(kind==='pulse'){
+          for(const ball of this.activeBalls())if(this.ballSpeed(ball)>CFG.maxSpeed*.83)
+            this.setBallSpeed(CFG.maxSpeed*.83,ball);
+        }
+        this.updateUI();
       }
+    }
+  }
   updateDrops(dt){
     for(let i=this.drops.length-1;i>=0;i--){
       const d=this.drops[i];d.y+=d.vy*dt;d.spin+=dt*4;
