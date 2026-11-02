@@ -1,8 +1,8 @@
 name: Публикация Импульса (GitHub Pages)
 
+# Manual fallback ONLY. The site currently uses Pages → Deploy from a branch
+# (develop). Switch Settings → Pages → Source to GitHub Actions before running.
 on:
-  # Alternative for a future switch to Pages → Source: GitHub Actions.
-  # Current site uses deploy-from-branch (develop), so do not auto-deploy main.
   workflow_dispatch:
 
 permissions:
@@ -12,19 +12,55 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
+    runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Проверить игровой код
+        run: npm run check
+
+      - name: Собрать все статические модули игры
+        shell: bash
+        run: |
+          mkdir -p pages-dist
+          # HTML подключает девять игровых скриптов: нельзя публиковать один game.js.
+          cp index.html game*.js style.css pages-dist/
+          touch pages-dist/.nojekyll
+          test -s pages-dist/index.html
+          test -s pages-dist/style.css
+          # Каждый локальный JS-файл из HTML обязан попасть в артефакт публикации.
+          python - <<'PY'
+          import re
+          from pathlib import Path
+
+          html = Path("pages-dist/index.html").read_text(encoding="utf-8")
+          scripts = re.findall(r'<script[^>]+src="([^"]+)"', html)
+          assert scripts, "В HTML не найдены скрипты игры"
+          for script in scripts:
+              filename = script.split("?", 1)[0]
+              assert (Path("pages-dist") / filename).is_file(), (
+                  f"В публикации отсутствует игровой модуль: {filename}"
+              )
+          print(f"Подготовлено игровых модулей: {len(scripts)}")
+          PY
+
       - uses: actions/configure-pages@v5
+
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: .
-      - id: deployment
+          path: pages-dist
+
+      - name: Развернуть сайт
+        id: deployment
         uses: actions/deploy-pages@v4
