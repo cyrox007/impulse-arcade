@@ -43,6 +43,14 @@ const IMPULSE_RENDER_METHODS = {
   drawGameplayStatus(){
     if(!['playing','ready','paused'].includes(this.state))return;
     ctx.textAlign='left';ctx.font='bold 12px system-ui';
+    // Показываем число оставшихся блоков рядом с комбо, но не в фазе босса.
+    // Так игрок видит прогресс без дополнительной панели на узком экране.
+    if(this.sectorPhase==='bricks'&&this.bricks.length>0){
+      ctx.fillStyle='#a2cde3';
+      ctx.textAlign='right';
+      ctx.fillText(`ОСТАЛОСЬ ${this.bricks.length}`,CFG.right-9,77);
+      ctx.textAlign='left';
+    }
     if(this.comboHits>=2){
       ctx.fillStyle='#ffcf80';
       ctx.fillText(`СЕРИЯ ${this.comboHits}  ×${this.comboMultiplier()}`,CFG.left+4,77);
