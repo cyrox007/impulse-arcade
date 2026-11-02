@@ -72,22 +72,51 @@ function clamp(n,lo,hi){return Math.min(hi,Math.max(lo,n))}
  */
 class Game {
   constructor(){
-    this.frame=0;this.state='menu';this.score=0;this.best=safeLoadBest();this.checkpoint=safeLoadCheckpoint();this.lives=3;this.level=0;
-    this.energy=0;this.bricks=[];this.drops=[];this.particles=[];this.waves=[];this.enemyShots=[];this.boss=null;this.sectorPhase='bricks';this.keys={};this.activePointerId=null;
-    this.settings=safeLoadSettings();this.settingsOpen=false;ui.settingsPanel.hidden=true;
+    this.frame=0;
+    this.state='menu';
+    this.score=0;
+    this.best=safeLoadBest();
+    this.checkpoint=safeLoadCheckpoint();
+    this.lives=3;
+    this.level=0;
+    this.energy=0;
+    this.bricks=[];
+    this.drops=[];
+    this.particles=[];
+    this.waves=[];
+    this.enemyShots=[];
+    this.boss=null;
+    this.sectorPhase='bricks';
+    this.keys={};
+    this.activePointerId=null;
+    this.settings=safeLoadSettings();
+    this.settingsOpen=false;
+    ui.settingsPanel.hidden=true;
     this.reducedMotion=this.settings.effects==='reduced'||
       (this.settings.effects==='auto'&&Boolean(window.matchMedia&&
         window.matchMedia('(prefers-reduced-motion: reduce)').matches));
-    soundEnabled=this.settings.sound;masterVolume=this.settings.volume/100;
+    soundEnabled=this.settings.sound;
+    masterVolume=this.settings.volume/100;
     this.syncSettingsUI();
-    this.paddle={x:CFG.width/2,w:CFG.paddleW,y:CFG.paddleY,h:CFG.paddleH};this.targetX=this.paddle.x;
-    this.ball={x:CFG.width/2,y:CFG.paddleY-14,vx:0,vy:0,r:CFG.ballRadius,trail:[]};this.extraBalls=[];
-    this.timers={pulse:0,wide:0,slow:0,magnet:0};this.time=0;this.flash=0;this.shieldCharges=0;
+    this.paddle={x:CFG.width/2,w:CFG.paddleW,y:CFG.paddleY,h:CFG.paddleH};
+    this.targetX=this.paddle.x;
+    this.ball={x:CFG.width/2,y:CFG.paddleY-14,vx:0,vy:0,r:CFG.ballRadius,trail:[]};
+    this.extraBalls=[];
+    this.timers={pulse:0,wide:0,slow:0,magnet:0};
+    this.time=0;
+    this.flash=0;
+    this.shieldCharges=0;
     this.runStats={seconds:0,hits:0,broken:0,pulses:0,maxCombo:0,barriers:0,splits:0};
-    this.comboHits=0;this.comboUntil=0;this.bestComboInSector=0;
-    this.lastSectorBonus=0;this.lastSectorBestCombo=0;
+    this.comboHits=0;
+    this.comboUntil=0;
+    this.bestComboInSector=0;
+    this.lastSectorBonus=0;
+    this.lastSectorBestCombo=0;
     this.stars=Array.from({length:68},(_,i)=>({x:(i*137.37)%CFG.width,y:(i*231.59)%CFG.height,r:i%7===0?1.6:.8,s:(i%4)*.16+.18}));
-    this.backdropLayer=createLayer();this.brickLayer=createLayer();this.bricksDirty=true;this.brickPaintCount=0;
+    this.backdropLayer=createLayer();
+    this.brickLayer=createLayer();
+    this.bricksDirty=true;
+    this.brickPaintCount=0;
     // Небольшие прозрачные спрайты заменяют дорогое рисование градиентов и теней в каждом кадре.
     this.spritePaintCount=0;
     this.sprites={
@@ -103,26 +132,60 @@ class Game {
     this.performance={fps:0,maxFrameMs:0,avgUpdateMs:0,avgDrawMs:0,
       frames:0,seconds:0,worst:0,updateTotalMs:0,drawTotalMs:0};
     if(this.backdropLayer)this.drawBackdrop(this.backdropLayer.ctx);
-    this.draw();this.showOverlay('intro');this.updateUI();
+    this.draw();
+    this.showOverlay('intro');
+    this.updateUI();
   }
-  setState(state){this.state=state;this.updateUI()}
+  setState(state){
+    this.state=state;
+    this.updateUI();
+  }
   resetBall(){
     this.ball={x:this.paddle.x,y:this.paddle.y-17,vx:0,vy:0,r:CFG.ballRadius,trail:[]};
-    this.extraBalls=[];this.timers.pulse=0;this.timers.slow=0;this.timers.magnet=0;
+    this.extraBalls=[];
+    this.timers.pulse=0;
+    this.timers.slow=0;
+    this.timers.magnet=0;
   }
   startNewGame(){
     // Новая игра удаляет предыдущую контрольную точку, в том числе после поражения.
-    this.checkpoint=null;safeClearCheckpoint();
-    this.score=0;this.lives=3;this.energy=0;this.level=0;this.timers={pulse:0,wide:0,slow:0,magnet:0};
-    this.resetCombo();this.bestComboInSector=0;this.lastSectorBonus=0;this.lastSectorBestCombo=0;
-    this.runStats={seconds:0,hits:0,broken:0,pulses:0,maxCombo:0,barriers:0,splits:0};this.shieldCharges=0;
-    this.paddle.w=CFG.paddleW;this.paddle.x=CFG.width/2;this.targetX=this.paddle.x;
-    this.drops=[];this.particles=[];this.waves=[];this.enemyShots=[];this.startLevel();
+    this.checkpoint=null;
+    safeClearCheckpoint();
+    this.score=0;
+    this.lives=3;
+    this.energy=0;
+    this.level=0;
+    this.timers={pulse:0,wide:0,slow:0,magnet:0};
+    this.resetCombo();
+    this.bestComboInSector=0;
+    this.lastSectorBonus=0;
+    this.lastSectorBestCombo=0;
+    this.runStats={seconds:0,hits:0,broken:0,pulses:0,maxCombo:0,barriers:0,splits:0};
+    this.shieldCharges=0;
+    this.paddle.w=CFG.paddleW;
+    this.paddle.x=CFG.width/2;
+    this.targetX=this.paddle.x;
+    this.drops=[];
+    this.particles=[];
+    this.waves=[];
+    this.enemyShots=[];
+    this.startLevel();
   }
   startLevel(){
-    this.makeBricks();this.drops=[];this.waves=[];this.enemyShots=[];this.paddle.w=CFG.paddleW;this.timers.wide=0;this.shieldCharges=0;
-    this.resetCombo();this.bestComboInSector=0;
-    this.resetBall();this.setState('ready');this.hideOverlay();this.flash=0;this.updateUI();
+    this.makeBricks();
+    this.drops=[];
+    this.waves=[];
+    this.enemyShots=[];
+    this.paddle.w=CFG.paddleW;
+    this.timers.wide=0;
+    this.shieldCharges=0;
+    this.resetCombo();
+    this.bestComboInSector=0;
+    this.resetBall();
+    this.setState('ready');
+    this.hideOverlay();
+    this.flash=0;
+    this.updateUI();
   }
   launch(){
     if(this.settingsOpen)return;
@@ -138,7 +201,9 @@ class Game {
     const speed=this.levelSpeed();
     this.ball.vx=random(-110,110);
     this.ball.vy=-Math.sqrt(speed**2-this.ball.vx**2);
-    this.setState('playing');this.hideOverlay();beep(430,.09);
+    this.setState('playing');
+    this.hideOverlay();
+    beep(430,.09);
   }
   togglePause(){
     if(this.state==='paused'){if(!this.settingsOpen)this.resume();return}
@@ -206,12 +271,24 @@ class Game {
   update(dt){
     // Пауза останавливает и физику, и частицы.
     if(this.state==='paused')return;
-    this.time+=dt;this.frame++;
+    this.time+=dt;
+    this.frame++;
     if(this.state==='playing')this.runStats.seconds+=dt;
     if(this.comboHits>0&&this.time>this.comboUntil)this.resetCombo();
     if(this.flash>0)this.flash=Math.max(0,this.flash-dt);
-    for(let i=this.particles.length-1;i>=0;i--){const p=this.particles[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=125*dt;p.life-=dt;if(p.life<=0)this.particles.splice(i,1)}
-    for(let i=this.waves.length-1;i>=0;i--){const wave=this.waves[i];wave.life-=dt;if(wave.life<=0)this.waves.splice(i,1)}
+    for(let i=this.particles.length-1;i>=0;i--){
+      const p=this.particles[i];
+      p.x+=p.vx*dt;
+      p.y+=p.vy*dt;
+      p.vy+=125*dt;
+      p.life-=dt;
+      if(p.life<=0)this.particles.splice(i,1);
+    }
+    for(let i=this.waves.length-1;i>=0;i--){
+      const wave=this.waves[i];
+      wave.life-=dt;
+      if(wave.life<=0)this.waves.splice(i,1);
+    }
     this.updateBoss(dt);
     if(this.state!=='ready'&&this.state!=='playing')return;
     this.updatePaddle(dt);
@@ -219,7 +296,8 @@ class Game {
       this.ball.x=this.paddle.x;this.ball.y=this.paddle.y-17;
       return;
     }
-    for(const ball of this.activeBalls())if(ball.held){
+    for(const ball of this.activeBalls()){
+      if(!ball.held)continue;
       ball.x=clamp(this.paddle.x+(ball.holdOffset||0),CFG.left+ball.r,CFG.right-ball.r);
       ball.y=this.paddle.y-ball.r-1;
       ball.holdTime=Math.max(0,(ball.holdTime||0)-dt);
