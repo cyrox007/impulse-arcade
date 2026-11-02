@@ -106,6 +106,7 @@ test('ограничение положения платформы и захва
 test('статический сайт не зависит от внешних JS/CSS и имеет мета-описание', () => {
   const html = readFileSync(path.join(root,'index.html'),'utf8');
   assert.match(html, /name="description"/);
+  assert.match(html, /src="game-physics\.js\?v=gameplay-100rc-20261101"/);
   assert.match(html, /src="game-render\.js\?v=gameplay-100rc-20261101"/);
   assert.match(html, /src="game\.js\?v=gameplay-100rc-20261101"/);
   assert.match(html, /src="game-input\.js\?v=gameplay-100rc-20261101"/);
