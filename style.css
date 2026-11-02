@@ -438,7 +438,7 @@ canvas {
     margin-top:4px
   }
 }
-/* Short phones: fit the intro and controls without clipping. */
+/* На коротких экранах размещаем вступление и кнопки без обрезания. */
 @media (max-height: 600px) {
   .overlay {
     padding: 10px 9px 16px;
@@ -471,7 +471,7 @@ canvas {
     display: none;
   }
 }
-/* Landscape phone: allow vertical scrolling instead of narrowing the stage. */
+/* В альбомной ориентации допускаем прокрутку, не сжимая игровую арену. */
 @media (max-height: 500px) and (orientation: landscape) {
   .game-stage {
     min-height: 360px;
@@ -480,9 +480,8 @@ canvas {
   }
 }
 /*
- * Mobile-first game view (portrait)
- * The HUD floats over the unused top section of the arena.
- * Keep the original 480x720 canvas ratio to preserve game physics.
+ * Портретный мобильный экран: HUD размещается над свободной верхней областью.
+ * Соотношение Canvas 480×720 неизменно, иначе нарушится физическая геометрия.
  */
 @media (max-width: 540px) and (orientation: portrait) {
   .shell {
@@ -686,7 +685,7 @@ canvas {
     display: none;
   }
 }
-/* Tiny portrait displays: reserve extra breathing room for browser controls. */
+/* На маленьких портретных экранах оставляем место под панели браузера. */
 @media (max-width: 540px) and (orientation: portrait) and (max-height: 600px) {
   .game-stage {
     width: min(100%, calc((100dvh - 148px) * 2 / 3));
@@ -711,7 +710,7 @@ canvas {
     padding: 6px 12px;
   }
 }
-/* 0.9.0: separate, compact secondary action for an existing checkpoint. */
+/* 0.9.0: компактная вторая кнопка при наличии контрольной точки. */
 .overlay-new-game {
   margin-top:9px;
   background:#162541;
@@ -734,7 +733,7 @@ canvas {
     font-size:10px
   }
 }
-/* 1.0 RC: compact control panel, above the paused overlay on every viewport. */
+/* 1.0 RC: настройки должны быть поверх затемнения паузы на всех экранах. */
 .settings-panel {
   position:absolute;
   inset:0;

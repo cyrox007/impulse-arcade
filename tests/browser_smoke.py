@@ -1,7 +1,7 @@
-"""Browser smoke for compact/normal mobile and desktop (not a physical-phone test).
+"""Браузерная проверка ПК и мобильных размеров (не тест на физическом телефоне).
 
-Requirements: pip install playwright; python -m playwright install chromium.
-HTML/CSS/JS are inlined to avoid file:// or localhost policy restrictions.
+Зависимости: pip install playwright; python -m playwright install chromium.
+HTML/CSS/JS встраиваются в страницу для независимости от сетевых ограничений.
 """
 from pathlib import Path
 import shutil
@@ -75,7 +75,7 @@ with sync_playwright() as pw:
         assert geometry['action']['bottom'] <= geometry['stage']['bottom'] + 1, geometry
         assert geometry['title']['top'] >= geometry['stage']['top'] - 1, geometry
         if width < height:
-            # A phone must devote most of its width to the actual game, not to outer UI.
+            # На телефоне большая часть ширины должна отводиться игровой арене, а не оболочке.
             metrics = page.evaluate('''() => {
                 const box = s => document.querySelector(s).getBoundingClientRect();
                 const canvas = box('#game'), hud = box('.hud'), stage = box('.game-frame');
@@ -94,10 +94,10 @@ with sync_playwright() as pw:
             assert metrics['controlsBottom'] <= height + 1, metrics
             assert not metrics['footerVisible'], metrics
             assert page.locator('#compactSector').is_visible()
-            print(f"{label} arena={metrics['canvasWidth']:.1f}x{metrics['canvasHeight']:.1f}")
+            print(f"{label}: игровое поле {metrics['canvasWidth']:.1f}×{metrics['canvasHeight']:.1f}")
         else:
             assert page.evaluate('document.querySelector("#game").getBoundingClientRect().width') >= 200
-        # New release settings panel must fit a compact mobile screen.
+        # Панель настроек должна помещаться даже на небольшом экране телефона.
         page.locator('#settingsBtn').click()
         assert page.locator('#settingsPanel').is_visible()
         panel_bounds=page.evaluate("""() => {
@@ -328,7 +328,7 @@ with sync_playwright() as pw:
         }""")
         assert all(wall_bricks.values()), wall_bricks
 
-        # Restore gameplay after checking the boss appearance.
+        # После проверки облика босса восстанавливаем обычное состояние игры.
         multiball = page.evaluate("""() => {
             game.startNewGame();game.launch();
             game.level=1;game.startLevel();game.launch();
@@ -357,7 +357,7 @@ with sync_playwright() as pw:
             return {spawned,survived,caught,enabled,released,charged};
         }""")
         assert all(multiball.values()), multiball
-        # Resume a neutral state for existing pause and renderer checks.
+        # Возвращаем нейтральное состояние для проверки паузы и отрисовки.
         page.evaluate("game.startNewGame();game.launch()")
 
 
@@ -367,8 +367,8 @@ with sync_playwright() as pw:
         assert page.evaluate('window.__impulseDebug().state') == 'playing'
         page.evaluate('window.dispatchEvent(new Event("blur"))')
         assert page.evaluate('window.__impulseDebug().state') == 'paused'
-        # Stress the actual third-sector renderer: a stable brick layer must
-        # be rasterized once rather than rebuilt on all 90 paint calls.
+        # Нагрузочная проверка третьего сектора: слой статичных кирпичей
+        # должен рисоваться один раз, а не на каждом из 90 кадров.
         paint_stats = page.evaluate("""() => {
             game.level = 2;
             game.makeBricks();
@@ -401,7 +401,7 @@ with sync_playwright() as pw:
         assert sprite_stats['after'] == 7, sprite_stats
         assert sprite_stats['ball'] and sprite_stats['paddle'], sprite_stats
         assert isinstance(sprite_stats['visibleStats'], (int, float)), sprite_stats
-        print(f"{label}: sector3 90 paints in {paint_stats['ms']:.1f}ms (desktop/mobile emulation)")
+        print(f"{label}: третий сектор — 90 отрисовок за {paint_stats['ms']:.1f} мс (эмуляция)")
         # Блоки статистики должны помещаться в игровое поле на всех экранах.
         results = page.evaluate("""() => {
             game.startNewGame();
@@ -430,10 +430,10 @@ with sync_playwright() as pw:
         assert results['extra']['bottom'] <= results['stage']['bottom'] + 1, results
         assert results['action']['bottom'] <= results['stage']['bottom'] + 1, results
         assert not errors, errors
-        print(f'{label}: responsive, controls, pause, blur OK; JS errors: 0')
+        print(f'{label}: адаптивность, управление, пауза и фокус проверены; ошибок JS: 0')
         context.close()
-    # Dedicated real-origin browser session: localStorage must survive a reload.
-    # The response is served by Playwright itself, with no external network.
+    # Проверяем сохранение localStorage после настоящей перезагрузки страницы.
+    # Страницу обслуживает сам Playwright, без обращения к внешней сети.
     inline_html=html.replace('</head>', '<style>'+css+'</style></head>').replace(
         '</body>', '<script>'+storage+'</script><script>'+physics+'</script><script>'+bricks+'</script><script>'+bosses+'</script><script>'+effects+'</script><script>'+ui_js+'</script><script>'+renderer+'</script><script>'+js+'</script><script>'+input_js+'</script></body>')
     for label,width,height in [('checkpoint-mobile-320',320,568),('checkpoint-mobile-393',393,852)]:
@@ -480,7 +480,7 @@ with sync_playwright() as pw:
         })""")
         assert resumed=={'state':'ready','level':1,'score':first['score'],
                          'lives':2,'energy':75,'hits':38,'balls':1},resumed
-        # Reload again and explicitly start a new campaign.
+        # Снова перезагружаем страницу и явно запускаем новую кампанию.
         page.reload()
         page.locator('#newGameAction').click()
         assert page.evaluate('game.level===0&&game.score===0&&game.lives===3&&game.state==="ready"')
@@ -488,7 +488,7 @@ with sync_playwright() as pw:
         page.reload()
         assert page.locator('#newGameAction').count()==0
         assert not errors,errors
-        print(f'{label}: local checkpoint, reload, continue and reset OK')
+        print(f'{label}: локальная контрольная точка, перезагрузка, продолжение и сброс проверены')
         context.close()
     # Проверяем настоящий порядок загрузки отдельных скриптов без inline-подмены.
     # Это защищает запуск напрямую через index.html на локальном компьютере.
