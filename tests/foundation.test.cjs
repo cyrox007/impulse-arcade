@@ -112,6 +112,8 @@ test('статический сайт не зависит от внешних JS
   assert.match(html, /src="game-input\.js\?v=gameplay-100rc-20261101"/);
   assert.ok(html.indexOf("game.js") < html.indexOf("game-input.js"), "управление загружается после модели");
   assert.ok(html.indexOf("game-physics.js") < html.indexOf("game.js"), "физика загружается до модели");
+  assert.ok(html.indexOf("game-bosses.js") < html.indexOf("game.js"), "боссы подключены до модели");
+  assert.ok(html.indexOf("game-effects.js") < html.indexOf("game.js"), "усиления подключены до модели");
   assert.ok(html.indexOf("game-render.js") < html.indexOf("game.js"), "сначала подключается отрисовка");
   assert.match(html, /href="style\.css\?v=gameplay-100rc-20261101"/);
   assert.doesNotMatch(html, /<script[^>]*src="https?:\/\//i);
