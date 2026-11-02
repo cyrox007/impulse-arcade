@@ -7,6 +7,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..', '..');
 const storageSource = readFileSync(path.join(root, 'game-storage.js'), 'utf8');
 const physicsSource = readFileSync(path.join(root, 'game-physics.js'), 'utf8');
+const brickSource = readFileSync(path.join(root, 'game-bricks.js'), 'utf8');
 const bossSource = readFileSync(path.join(root, 'game-bosses.js'), 'utf8');
 const effectSource = readFileSync(path.join(root, 'game-effects.js'), 'utf8');
 const uiSource = readFileSync(path.join(root, 'game-ui.js'), 'utf8');
@@ -67,6 +68,7 @@ function createEnvironment({fpsDebug=false,reducedMotion=false,sharedStorage=nul
   vm.createContext(sandbox);
   vm.runInContext(storageSource, sandbox, {filename:'game-storage.js'});
   vm.runInContext(physicsSource, sandbox, {filename:'game-physics.js'});
+  vm.runInContext(brickSource, sandbox, {filename:'game-bricks.js'});
   vm.runInContext(bossSource, sandbox, {filename:'game-bosses.js'});
   vm.runInContext(effectSource, sandbox, {filename:'game-effects.js'});
   vm.runInContext(uiSource, sandbox, {filename:'game-ui.js'});
