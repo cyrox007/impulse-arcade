@@ -15,9 +15,9 @@ renderer = (root / 'game-render.js').read_text(encoding='utf-8')
 js = (root / 'game.js').read_text(encoding='utf-8')
 input_js = (root / 'game-input.js').read_text(encoding='utf-8')
 html = re.sub(r'<link rel="stylesheet" href="style\.css(?:\?[^"]*)?">', '', html)
-html = re.sub(r'<script src="game-render\\.js(?:\\?[^"]*)?" defer></script>', '', html)
+html = re.sub(r'<script src="game-render\.js(?:\?[^"]*)?" defer></script>', '', html)
 html = re.sub(r'<script src="game\.js(?:\?[^"]*)?" defer></script>', '', html)
-html = re.sub(r'<script src="game-input\\.js(?:\\?[^"]*)?" defer></script>', '', html)
+html = re.sub(r'<script src="game-input\.js(?:\?[^"]*)?" defer></script>', '', html)
 
 with sync_playwright() as pw:
     binary = shutil.which('chromium') or shutil.which('google-chrome')
