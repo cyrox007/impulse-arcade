@@ -6,6 +6,7 @@ const vm = require('node:vm');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
+const rendererSource = readFileSync(path.join(root, 'game-render.js'), 'utf8');
 const source = readFileSync(path.join(root, 'game.js'), 'utf8');
 
 function createEnvironment({fpsDebug=false,reducedMotion=false,sharedStorage=null,storageBlocked=false}={}) {
@@ -59,6 +60,7 @@ function createEnvironment({fpsDebug=false,reducedMotion=false,sharedStorage=nul
     console, Math, Array, Object, String, Number, Map
   };
   vm.createContext(sandbox);
+  vm.runInContext(rendererSource, sandbox, {filename:'game-render.js'});
   vm.runInContext(source, sandbox, {filename:'game.js'});
   return { ...vm.runInContext('({game,CFG,LEVELS})', sandbox),
     handlers, elements:records, storage, gradientCalls,
