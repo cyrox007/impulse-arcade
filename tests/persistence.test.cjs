@@ -420,3 +420,34 @@ test('таймер расширения платформы восстанавл�
   assert.equal(game.paddle.w, CFG.paddleW);
   assert.equal(game.timers.wide, 0);
 });
+
+test('сохранения и интерфейс вынесены без дублирования состояния и схемы', () => {
+  const {game,storage,elements} = createEnvironment();
+  const persistence = readFileSync(path.join(root,'game-storage.js'),'utf8');
+  const interfaceCode = readFileSync(path.join(root,'game-ui.js'),'utf8');
+  const model = readFileSync(path.join(root,'game.js'),'utf8');
+  assert.match(persistence, /const IMPULSE_PERSISTENCE_METHODS =/);
+  assert.match(interfaceCode, /const IMPULSE_UI_METHODS =/);
+  assert.doesNotMatch(model, /^  continueGame\(/m);
+  assert.doesNotMatch(model, /^  updateUI\(/m);
+  assert.match(model, /Object\.assign\(Game\.prototype,IMPULSE_PERSISTENCE_METHODS\)/);
+  assert.match(model, /Object\.assign\(Game\.prototype,IMPULSE_UI_METHODS\)/);
+
+  // Данные остаются прежней версии: прогресс, рекорд и настройки не теряются.
+  game.launch();
+  game.launch();
+  game.score=2900;
+  game.lives=2;
+  game.runStats.hits=12;
+  game.bricks=[];
+  game.checkStageCompletion();
+  assert.equal(game.state,'between');
+  const saved=JSON.parse(storage.get('impulse-arcade:checkpoint:v1'));
+  assert.equal(saved.version,1);
+  assert.equal(saved.stats.hits,12);
+  assert.equal(saved.score,2900+100*2);
+
+  game.setSetting('sensitivity',120);
+  assert.equal(elements.get('sensitivityValue').textContent,'120%');
+  assert.equal(JSON.parse(storage.get('impulse-arcade:settings:v1')).version,1);
+});
