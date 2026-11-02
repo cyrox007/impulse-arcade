@@ -299,52 +299,12 @@ class Game {
     }
   }
   resume(){if(this.state!=='paused')return;this.setState(this.savedState||'ready');this.hideOverlay()}
-  pulse(){
-    if(this.state!=='playing'||this.energy<100||this.timers.pulse>0)return;
-    this.energy=0;this.timers.pulse=CFG.pulseDuration;this.flash=.36;this.runStats.pulses++;
-    this.releaseHeldBalls();
-    this.addParticles(this.ball.x,this.ball.y,28,'#ff85d9');
-    for(const ball of this.activeBalls())
-      this.setBallSpeed(clamp(this.ballSpeed(ball)*1.13,this.levelSpeed(),CFG.maxSpeed),ball);
-    beep(520,.25,.06,'sawtooth');this.updateUI();
-  }
   levelSpeed(){return Math.min(CFG.maxSpeed,CFG.initialSpeed*LEVELS[this.level].speedScale)}
   activeBalls(){return [this.ball,...this.extraBalls]}
   ballSpeed(ball=this.ball){return Math.hypot(ball.vx,ball.vy)}
   setBallSpeed(speed,ball=this.ball){
     const current=this.ballSpeed(ball);if(current<1)return;
     ball.vx*=speed/current;ball.vy*=speed/current;
-  }
-  splitBall(){
-    if(this.state!=='playing'||this.activeBalls().length>=3)return false;
-    this.releaseHeldBalls();
-    const source=this.activeBalls().find(b=>!b.held&&this.ballSpeed(b)>1);
-    if(!source)return false;
-    const speed=clamp(this.ballSpeed(source),this.levelSpeed(),CFG.maxSpeed);
-    const base=Math.atan2(source.vx,Math.abs(source.vy));
-    for(const sign of [-1,1]){
-      if(this.activeBalls().length>=3)break;
-      const angle=clamp(base+sign*.48,-1.06,1.06);
-      this.extraBalls.push({x:clamp(source.x+sign*13,CFG.left+source.r,CFG.right-source.r),
-        y:source.y-5,vx:speed*Math.sin(angle),vy:-speed*Math.cos(angle),
-        r:source.r,trail:[]});
-    }
-    this.runStats.splits++;
-    this.addWave(source.x,source.y,'#ceacff',42,.25,2);
-    beep(930,.1,.045,'triangle');this.updateUI();return true;
-  }
-  releaseHeldBalls(){
-    let count=0;
-    for(const b of this.activeBalls()){
-      if(!b.held)continue;
-      b.held=false;b.holdTime=0;
-      const speed=this.levelSpeed()*(this.timers.slow>0 ? .75 : 1);
-      const angle=clamp((b.holdOffset||0)/(this.paddle.w/2)*.75,-.85,.85);
-      b.vx=speed*Math.sin(Math.abs(angle)<.12 ? .16 : angle);
-      b.vy=-Math.sqrt(speed*speed-b.vx*b.vx);count++;
-    }
-    if(count)this.updateUI();
-    return count;
   }
   removeBall(ball){
     if(ball===this.ball){
@@ -370,113 +330,11 @@ class Game {
     this.setState(kind);this.updateBest();
     this.showOverlay(kind);beep(kind==='won'?720:180,.25,.04,'triangle');
   }
-  beginGuardian(){
-    if(this.sectorPhase!=='bricks'||this.level!==2)return;
-    this.sectorPhase='guardian';
-    this.boss={kind:'guardian',x:CFG.width/2-80,y:138,w:160,h:66,hp:6,maxHp:6,lock:0,phaseTime:0,hitFlash:0,vx:72,minX:CFG.left+24,maxX:CFG.right-24-160,shotClock:0};
-    this.addWave(CFG.width/2,170,'#f6acff',90,.4,3);
-    this.addParticles(CFG.width/2,170,28,'#df96ff');
-    beep(280,.17,.04,'sawtooth');this.updateUI();
-  }
-  beginReactor(){
-    if(this.sectorPhase!=='bricks'||this.level!==LEVELS.length-1)return;
-    this.sectorPhase='reactor';
-    this.boss={kind:'reactor',x:CFG.width/2-94,y:139,w:188,h:76,
-      hp:6,maxHp:6,lock:0,phaseTime:0,hitFlash:0,vx:65,
-      minX:CFG.left+64,maxX:CFG.right-64-188,shotClock:0,
-      nodes:[{offset:36,hp:2},{offset:94,hp:2},{offset:152,hp:2}]};
-    this.addWave(CFG.width/2,179,'#f5b37b',105,.4,3);
-    this.addParticles(CFG.width/2,179,28,'#ffc690',{shard:true});
-    beep(230,.20,.05,'sawtooth');this.updateUI();
-  }
-  guardianVulnerable(){
-    return this.boss!==null&&this.boss.kind==='guardian'&&this.boss.phaseTime%3.5<2.5;
-  }
-  reactorNodes(){
-    const b=this.boss;
-    return b?.kind==='reactor'?b.nodes.filter(n=>n.hp>0):[];
-  }
   checkStageCompletion(){
     if(this.bricks.length||this.state!=='playing'||this.sectorPhase!=='bricks')return;
     if(this.level===2)this.beginGuardian();
     else if(this.level===LEVELS.length-1)this.beginReactor();
     else this.completeLevel();
-  }
-  damageReactor(node){
-    const boss=this.boss;
-    if(!boss||boss.kind!=='reactor'||this.state!=='playing'||boss.lock>0||node.hp<=0)return false;
-    boss.lock=.16;boss.hitFlash=.20;node.hp--;boss.hp--;this.runStats.hits++;
-    this.score+=400*(this.level+1);this.energy=clamp(this.energy+14,0,100);
-    const x=boss.x+node.offset,y=boss.y+boss.h-10;
-    this.addWave(x,y,'#ffd39d',37,.24,2);
-    this.addParticles(x,y,13,'#ffa96c',{shard:true,life:.36});
-    beep(480+node.hp*55,.09,.038,'triangle');
-    if(boss.hp<=0){
-      this.score+=3000;this.runStats.broken++;
-      this.addParticles(boss.x+boss.w/2,boss.y+38,65,'#ffd39d',{shard:true,life:.62});
-      this.addWave(boss.x+boss.w/2,boss.y+38,'#ffb973',145,.50,3,'burst');
-      this.addWave(boss.x+boss.w/2,boss.y+38,'#ff7bbc',176,.57,2);
-      this.flash=Math.max(this.flash,this.reducedMotion ? .07 : .3);
-      this.boss=null;this.sectorPhase='finished';this.completeLevel();
-    }else{this.updateBest();this.updateUI()}
-    return true;
-  }
-  reactorCollision(b,prevX,prevY){
-    const boss=this.boss;
-    if(!boss||boss.kind!=='reactor')return false;
-    const cx=clamp(b.x,boss.x,boss.x+boss.w),cy=clamp(b.y,boss.y,boss.y+boss.h);
-    if((b.x-cx)**2+(b.y-cy)**2>b.r*b.r)return false;
-    const node=boss.nodes.find(n=>n.hp>0&&
-      (b.x-(boss.x+n.offset))**2+(b.y-(boss.y+boss.h-10))**2<=(b.r+18)**2);
-    if(node&&prevY-b.r>=boss.y+boss.h-2&&b.vy<0&&boss.lock<=0)this.damageReactor(node);
-    if(this.state==='playing'&&(!node||prevY-b.r<boss.y+boss.h-2||b.vy>=0||this.timers.pulse<=0))
-      this.reflectBallFromRect(boss,prevX,prevY,b);
-    return true;
-  }
-  damageGuardian(){
-    const boss=this.boss;
-    if(!boss||this.state!=='playing'||boss.lock>0||!this.guardianVulnerable())return false;
-    boss.lock=.17;boss.hitFlash=.22;boss.hp--;this.runStats.hits++;
-    this.score+=250*(this.level+1);this.energy=clamp(this.energy+12,0,100);
-    this.addParticles(boss.x+boss.w/2,boss.y+boss.h/2,12,'#f6b3ff',{shard:true,life:.35});
-    this.addWave(boss.x+boss.w/2,boss.y+boss.h/2,'#ffb5ec',48,.22,2);
-    beep(420+boss.hp*40,.07,.035,'triangle');
-    if(boss.hp<=0){
-      this.runStats.broken++;this.score+=1500;this.boss=null;this.sectorPhase='finished';
-      this.addParticles(CFG.width/2,boss.y+boss.h/2,60,'#ffcf94',{shard:true,life:.65});
-      this.addWave(CFG.width/2,boss.y+boss.h/2,'#ffd09a',110,.46,3,'burst');
-      this.addWave(CFG.width/2,boss.y+boss.h/2,'#f5a8ff',148,.56,2);
-      this.flash=Math.max(this.flash,this.reducedMotion ? .06 : .27);
-      this.updateBest();this.completeLevel();
-    }else{this.updateBest();this.updateUI()}
-    return true;
-  }
-  shootBoss(boss){
-    if(this.enemyShots.length>=4||this.state!=='playing')return;
-    const x=boss.x+boss.w/2,y=boss.y+boss.h+8;
-    const dx=clamp(this.paddle.x-x,-175,175);
-    const speed=boss.kind==='reactor'?205:177;
-    this.enemyShots.push({x,y,vx:dx*.36,vy:speed,r:8});
-    this.addWave(x,y,boss.kind==='reactor'?'#ffb76c':'#ef94ff',24,.19,2);
-    beep(240,.07,.03,'sawtooth');
-  }
-  updateEnemyShots(dt){
-    for(let i=this.enemyShots.length-1;i>=0;i--){
-      const shot=this.enemyShots[i],oldY=shot.y;
-      shot.x+=shot.vx*dt;shot.y+=shot.vy*dt;
-      if(shot.y-shot.r>CFG.bottom||shot.x<CFG.left-20||shot.x>CFG.right+20){
-        this.enemyShots.splice(i,1);continue;
-      }
-      if(shot.vy>0&&oldY+shot.r<=this.paddle.y+5&&shot.y+shot.r>=this.paddle.y &&
-        Math.abs(shot.x-this.paddle.x)<=this.paddle.w/2+shot.r){
-        this.enemyShots.splice(i,1);
-        this.addParticles(shot.x,this.paddle.y,14,'#ffae78');
-        this.addWave(shot.x,this.paddle.y,'#ffc68a',30,.24,2);
-        if(this.shieldCharges>0){this.shieldCharges=0;this.runStats.barriers++;this.updateUI()}
-        else this.dropBall();
-        break;
-      }
-    }
   }
   completeLevel(){
     this.enemyShots=[];this.lastSectorBestCombo=this.bestComboInSector;
@@ -533,78 +391,6 @@ class Game {
     }
     this.flash=Math.max(this.flash,this.reducedMotion ? .07 : .16);
   }
-  maybeDrop(brick){
-    if(Math.random()>LEVELS[this.level].dropChance)return;
-    const t=Math.random(),type=t<.28?'wide':t<.49?'slow':t<.64?'shield':t<.78?'multi':t<.92?'magnet':'life';
-    this.drops.push({x:brick.x+brick.w/2,y:brick.y+brick.h/2,vy:115,type,spin:0});
-  }
-  applyDrop(type){
-    if(type==='wide'){this.timers.wide=CFG.wideDuration;this.paddle.w=145}
-    if(type==='slow'){
-      if(this.timers.slow<=0)for(const ball of this.activeBalls())
-        if(this.ballSpeed(ball)>0)this.setBallSpeed(Math.max(195,this.ballSpeed(ball)*.75),ball);
-      this.timers.slow=CFG.slowDuration;
-    }
-    if(type==='magnet')this.timers.magnet=12;
-    if(type==='multi')this.splitBall();
-    if(type==='life')this.lives=Math.min(5,this.lives+1);
-    if(type==='shield')this.shieldCharges=1;
-    this.score+=75;this.updateBest();this.addParticles(this.paddle.x,this.paddle.y,12,'#ffc477');beep(850,.13,.05);
-    this.updateUI();
-  }
-  // Для каждого типа блока используется отдельный лёгкий визуальный эффект разрушения.
-  // Визуальные эффекты не изменяют очки, столкновения и кэш кирпичей.
-  blockEffect(brick,destroyed,secondary=false){
-    const x=brick.x+brick.w/2,y=brick.y+brick.h/2;
-    const colors={
-      normal:['#6bcdff','#b8f5ff'],
-      moving:['#89ffde','#d6ffed'],
-      charge:['#ffdf80','#fff4c4'],
-      prism:['#ae9aff','#eadfff'],
-      armor:['#f0ba6c','#fff0b7'],
-      core:['#ef83fc','#ffd5ff'],
-      blast:['#ff8d50','#ffe2a1'],
-      directional:['#8cffd1','#dbfff1']
-    };
-    const [color,highlight]=colors[brick.type]||colors.normal;
-    const amount=destroyed?(brick.type==='blast'?14:brick.type==='armor'?11:9):brick.type==='armor'?5:3;
-    this.addParticles(x,y,secondary?Math.min(amount,6):amount,color,{shard:destroyed,life:destroyed ? .44 : .27});
-    if(!destroyed){
-      if(brick.type==='armor')this.addWave(x,y,highlight,18,.14,1.6);
-      return;
-    }
-    if(brick.type==='normal'||brick.type==='moving'||brick.type==='charge'||brick.type==='prism'||brick.type==='directional'){
-      // Стеклянные осколки и короткий голубой импульс.
-      this.addWave(x,y,highlight,33,.20,1.5);
-    }else if(brick.type==='armor'){
-      // Тяжёлые янтарные осколки и компактная металлическая ударная волна.
-      this.addWave(x,y,highlight,41,.26,2.3);
-    }else if(brick.type==='core'){
-      // Две последовательно расходящиеся энергетические волны.
-      this.addWave(x,y,color,49,.32,2.6);
-      this.addWave(x,y,highlight,28,.20,1.5);
-    }else if(brick.type==='blast'){
-      // Короткий радиальный взрыв без повторного игрового урона.
-      this.addWave(x,y,color,64,.31,3.5,'burst');
-      this.addWave(x,y,highlight,95,.35,1.8);
-      this.flash=Math.max(this.flash,this.reducedMotion ? .05 : .12);
-    }
-  }
-  addWave(x,y,color,radius,duration,width=2,kind='ring'){
-    if(this.reducedMotion)return;
-    if(this.waves.length>=24)this.waves.splice(0,this.waves.length-23);
-    this.waves.push({x,y,color,radius,duration,life:duration,width,kind});
-  }
-  addParticles(x,y,n,color,{shard=false,life=0}={}){
-    // Ограничиваем количество эффектов при серии комбо, взрывах и множественном разрушении.
-    const max=180,count=Math.min(this.reducedMotion?Math.ceil(n*.33):n,max);
-    if(this.particles.length+count>max)this.particles.splice(0,this.particles.length+count-max);
-    for(let i=0;i<count;i++){
-      const duration=life||random(.3,.75);
-      this.particles.push({x,y,vx:random(-170,170),vy:random(-180,160),
-        life:duration,maxLife:duration,color,r:random(shard?2.4:1.1,shard?5:3.4),shard});
-    }
-  }
   drawWaves(){
     for(const wave of this.waves){
       const progress=1-wave.life/wave.duration;
@@ -659,32 +445,6 @@ class Game {
     this.advancePhysics(dt);
   }
 
-  /** Обновление босса выполняется только во время игры, не в паузе. */
-  updateBoss(dt){
-    if(this.state!=='playing'||!this.boss)return;
-    const boss=this.boss;
-    boss.phaseTime+=dt;
-    boss.lock=Math.max(0,boss.lock-dt);
-    boss.hitFlash=Math.max(0,boss.hitFlash-dt);
-    boss.x+=boss.vx*dt;
-    if(boss.x>boss.maxX){
-      boss.x=boss.maxX-(boss.x-boss.maxX);
-      boss.vx=-Math.abs(boss.vx);
-    }else if(boss.x<boss.minX){
-      boss.x=boss.minX+(boss.minX-boss.x);
-      boss.vx=Math.abs(boss.vx);
-    }
-    // У двух боссов разные высоты и частоты колебаний.
-    const reactor=boss.kind==='reactor';
-    boss.y=(reactor?145:153)+(this.reducedMotion?0:
-      (reactor?18:14)*Math.sin(boss.phaseTime*(reactor?.95:1.25)));
-    boss.shotClock+=dt;
-    const interval=reactor?2.9:3.5;
-    if(boss.shotClock>=interval){
-      boss.shotClock-=interval;
-      this.shootBoss(boss);
-    }
-  }
 
   /** Клавиатура задаёт цель, платформа плавно следует к ней в пределах арены. */
   updatePaddle(dt){
@@ -695,38 +455,6 @@ class Game {
     this.paddle.x+=(this.targetX-this.paddle.x)*Math.min(1,dt*23);
   }
 
-  /**
-   * Снимает временные усиления по истечении срока.
-   * Замедление компенсируется обратным множителем только один раз.
-   */
-  updateEffectTimers(dt){
-    for(const brick of this.bricks)brick.lock=Math.max(0,brick.lock-dt);
-    for(const kind of ['pulse','wide','slow','magnet']){
-      if(this.timers[kind]<=0)continue;
-      const previous=this.timers[kind];
-      this.timers[kind]=Math.max(0,previous-dt);
-      if(previous>0&&this.timers[kind]===0){
-        if(kind==='wide')this.paddle.w=CFG.paddleW;
-        if(kind==='slow'){
-          for(const ball of this.activeBalls())if(this.ballSpeed(ball)>0)
-            this.setBallSpeed(Math.min(CFG.maxSpeed,this.ballSpeed(ball)/.75),ball);
-        }
-        if(kind==='pulse'){
-          for(const ball of this.activeBalls())if(this.ballSpeed(ball)>CFG.maxSpeed*.83)
-            this.setBallSpeed(CFG.maxSpeed*.83,ball);
-        }
-        this.updateUI();
-      }
-    }
-  }
-  updateDrops(dt){
-    for(let i=this.drops.length-1;i>=0;i--){
-      const d=this.drops[i];d.y+=d.vy*dt;d.spin+=dt*4;
-      if(d.y>this.paddle.y-8&&d.y<this.paddle.y+this.paddle.h+10&&Math.abs(d.x-this.paddle.x)<this.paddle.w/2+9){
-        this.drops.splice(i,1);this.applyDrop(d.type);
-      }else if(d.y>CFG.height+15)this.drops.splice(i,1);
-    }
-  }
   /**
    * Формируем наглядный итог забега из уже существующих счётчиков.
    * Статистика обновляется игровой моделью, поэтому отдельное состояние
@@ -797,5 +525,15 @@ if(typeof IMPULSE_PHYSICS_METHODS==='undefined'){
   throw new Error('Не загружен модуль физики game-physics.js');
 }
 Object.assign(Game.prototype,IMPULSE_PHYSICS_METHODS);
+
+if(typeof IMPULSE_BOSS_METHODS==='undefined'){
+  throw new Error('Не загружен модуль боссов game-bosses.js');
+}
+Object.assign(Game.prototype,IMPULSE_BOSS_METHODS);
+
+if(typeof IMPULSE_EFFECT_METHODS==='undefined'){
+  throw new Error('Не загружен модуль эффектов game-effects.js');
+}
+Object.assign(Game.prototype,IMPULSE_EFFECT_METHODS);
 
 const game=new Game();
